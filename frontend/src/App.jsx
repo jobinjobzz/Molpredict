@@ -334,12 +334,12 @@ export default function App() {
             {/* Tab: Structure */}
             {activeTab === "structure" && (
               <div style={{ display: "flex", justifyContent: "center" }}>
-                {result.structure_image ? (
+                {result.structure_url ? (
                   <div style={{ background: "#0a1520", border: "1px solid #0f2030", borderRadius: 16, padding: 24, display: "inline-block" }}>
                     <div style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'JetBrains Mono', monospace", marginBottom: 16, textAlign: "center" }}>
                       2D Molecular Structure
                     </div>
-                    <img src={result.structure_image} alt="2D structure" style={{ maxWidth: "100%", width: 400, height: 300, borderRadius: 8, display: "block" }} />
+                    <img src={result.structure_url} alt="2D structure" style={{ maxWidth: "100%", width: 400, height: 300, borderRadius: 8, display: "block" }} />
                     {result.name && (
                       <div style={{ textAlign: "center", marginTop: 12, fontFamily: "'Space Mono', monospace", fontSize: 14, color: "#94a3b8" }}>
                         {result.name}
