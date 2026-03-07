@@ -406,26 +406,32 @@ export default function App() {
   const selectExample = (mol) => { setSmiles(mol.smiles); setMolName(mol.name); setResult(null); setError(null); };
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Lato', sans-serif", padding: "0 0 80px", position: "relative", overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", color: T.text, fontFamily: "'Lato', sans-serif", padding: "0 0 80px", position: "relative", overflow: "hidden" }}>
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Cormorant+Garamond:wght@400;600&family=Lato:wght@300;400;600;700&family=Courier+Prime&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::selection { background: #ede9fe; color: #6d28d9; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f5f3ff; }
+        ::-webkit-scrollbar-track { background: #e0d9f5; }
         ::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 3px; }
         @keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
         @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
-        @keyframes floatSlow { 0%,100%{transform:translateY(0px) rotate(0deg);} 50%{transform:translateY(-12px) rotate(1deg);} }
       `}</style>
 
-      {/* Chemical structure background */}
-      <div style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", animation: "floatSlow 18s ease-in-out infinite" }}
-        dangerouslySetInnerHTML={{ __html: BG_MOLECULES }} />
+      {/* 3D Molecular photo background */}
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+        backgroundImage: "url('https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=1920&q=80')",
+        backgroundSize: "cover", backgroundPosition: "center",
+      }} />
 
-      {/* Soft gradient overlay */}
-      <div style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", background: "radial-gradient(ellipse at 20% 20%, rgba(200,185,240,0.25) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(180,165,230,0.2) 0%, transparent 60%)" }} />
+      {/* Light frosted overlay to keep content readable */}
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
+        background: "linear-gradient(160deg, rgba(255,255,255,0.75) 0%, rgba(237,233,254,0.72) 50%, rgba(255,255,255,0.75) 100%)",
+        backdropFilter: "blur(1px)",
+      }} />
 
       {/* Header */}
       <div style={{ position: "relative", zIndex: 10, borderBottom: `1px solid ${T.border}`, padding: "18px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.85)", backdropFilter: "blur(16px)", boxShadow: "0 1px 20px rgba(124,58,237,0.08)" }}>
