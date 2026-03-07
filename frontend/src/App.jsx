@@ -4,31 +4,31 @@ const API = "https://molpredict.onrender.com";
 
 // ── Design tokens — light, elegant, violet ─────────────────────────────────────
 const T = {
-  bg:          "#ddd6f5",
-  bgCard:      "rgba(255,255,255,0.88)",
-  bgCardHover: "rgba(255,255,255,0.98)",
-  bgInput:     "rgba(255,255,255,0.95)",
-  border:      "rgba(109,40,217,0.25)",
+  bg:          "#0f0a1e",
+  bgCard:      "rgba(20,10,50,0.72)",
+  bgCardHover: "rgba(25,12,60,0.90)",
+  bgInput:     "rgba(255,255,255,0.12)",
+  border:      "rgba(167,139,250,0.25)",
   borderFocus: "#7c3aed",
-  text:        "#1e1040",
-  textMuted:   "#6b7280",
-  textLight:   "#a78bfa",
+  text:        "#f0eaff",
+  textMuted:   "#a78bfa",
+  textLight:   "#c4b5fd",
   accent:      "#7c3aed",
-  accentLight: "#ede9fe",
-  accentMid:   "#c4b5fd",
+  accentLight: "rgba(124,58,237,0.25)",
+  accentMid:   "rgba(167,139,250,0.5)",
   grad:        "linear-gradient(135deg, #7c3aed, #a855f7)",
-  gradSoft:    "linear-gradient(135deg, #ede9fe, #f5f3ff)",
-  shadow:      "0 4px 24px rgba(124,58,237,0.10)",
-  shadowHover: "0 8px 32px rgba(124,58,237,0.18)",
+  gradSoft:    "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(168,85,247,0.2))",
+  shadow:      "0 4px 24px rgba(0,0,0,0.4)",
+  shadowHover: "0 8px 32px rgba(124,58,237,0.4)",
   radius:      14,
   radiusSm:    8,
 };
 
 const statusColor = {
-  good:    { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d", dot: "#22c55e", bar: "#4ade80" },
-  warning: { bg: "#fffbeb", border: "#fde68a", text: "#b45309", dot: "#f59e0b", bar: "#fbbf24" },
-  bad:     { bg: "#fff1f2", border: "#fecdd3", text: "#be123c", dot: "#f43f5e", bar: "#fb7185" },
-  neutral: { bg: "#f5f3ff", border: "#ddd6fe", text: "#6d28d9", dot: "#8b5cf6", bar: "#a78bfa" },
+  good:    { bg: "rgba(20,83,45,0.35)", border: "rgba(74,222,128,0.3)", text: "#4ade80", dot: "#22c55e", bar: "#4ade80" },
+  warning: { bg: "rgba(120,80,0,0.3)", border: "rgba(251,191,36,0.3)", text: "#fbbf24", dot: "#f59e0b", bar: "#fbbf24" },
+  bad:     { bg: "rgba(136,19,55,0.3)", border: "rgba(251,113,133,0.3)", text: "#fb7185", dot: "#f43f5e", bar: "#fb7185" },
+  neutral: { bg: "rgba(109,40,217,0.2)", border: "rgba(167,139,250,0.3)", text: "#c4b5fd", dot: "#8b5cf6", bar: "#a78bfa" },
 };
 
 // ── SVG chemical structure backgrounds ────────────────────────────────────────
@@ -167,9 +167,9 @@ function LipinskiBadge({ lipinski }) {
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 8,
       padding: "8px 18px", borderRadius: 99,
-      background: pass ? "#f0fdf4" : "#fff1f2",
-      border: `1.5px solid ${pass ? "#bbf7d0" : "#fecdd3"}`,
-      color: pass ? "#15803d" : "#be123c",
+      background: pass ? "rgba(20,83,45,0.4)" : "rgba(136,19,55,0.4)",
+      border: `1.5px solid ${pass ? "rgba(74,222,128,0.5)" : "rgba(251,113,133,0.5)"}`,
+      color: pass ? "#4ade80" : "#fb7185",
       fontFamily: "'Lato', sans-serif", fontSize: 13, fontWeight: 700,
       boxShadow: pass ? "0 2px 8px rgba(34,197,94,0.15)" : "0 2px 8px rgba(244,63,94,0.15)",
     }}>
@@ -226,9 +226,9 @@ const inputStyle = {
   width: "100%", background: T.bgInput,
   border: `1.5px solid ${T.border}`,
   borderRadius: T.radiusSm, padding: "11px 16px",
-  color: T.text, fontFamily: "'Lato', sans-serif", fontSize: 14,
+  color: "#f0eaff", fontFamily: "'Lato', sans-serif", fontSize: 14,
   outline: "none", transition: "border-color 0.15s, box-shadow 0.15s",
-  boxShadow: "0 1px 4px rgba(124,58,237,0.06)",
+  boxShadow: "0 1px 4px rgba(124,58,237,0.12)",
 };
 
 // ── Batch ──────────────────────────────────────────────────────────────────────
@@ -413,7 +413,7 @@ export default function App() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::selection { background: #ede9fe; color: #6d28d9; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #e0d9f5; }
+        ::-webkit-scrollbar-track { background: #0f0a1e; }
         ::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 3px; }
         @keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
         @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
@@ -424,17 +424,18 @@ export default function App() {
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         backgroundImage: "url('https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=1920&q=80')",
         backgroundSize: "cover", backgroundPosition: "center",
+        filter: "brightness(0.45) saturate(1.2)",
       }} />
 
       {/* Light frosted overlay to keep content readable */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
-        background: "linear-gradient(160deg, rgba(255,255,255,0.75) 0%, rgba(237,233,254,0.72) 50%, rgba(255,255,255,0.75) 100%)",
+        background: "linear-gradient(160deg, rgba(15,5,40,0.55) 0%, rgba(50,20,100,0.45) 50%, rgba(15,5,40,0.55) 100%)",
         backdropFilter: "blur(1px)",
       }} />
 
       {/* Header */}
-      <div style={{ position: "relative", zIndex: 10, borderBottom: `1px solid ${T.border}`, padding: "18px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.85)", backdropFilter: "blur(16px)", boxShadow: "0 1px 20px rgba(124,58,237,0.08)" }}>
+      <div style={{ position: "relative", zIndex: 10, borderBottom: `1px solid ${T.border}`, padding: "18px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(10,4,30,0.75)", backdropFilter: "blur(20px)", boxShadow: "0 1px 20px rgba(0,0,0,0.4)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: T.grad, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, boxShadow: "0 4px 12px rgba(124,58,237,0.35)" }}>⬡</div>
           <div>
@@ -452,7 +453,7 @@ export default function App() {
 
         {/* Hero */}
         <div style={{ textAlign: "center", marginBottom: 52, animation: "fadeUp 0.6s ease" }}>
-          <div style={{ display: "inline-block", background: T.accentLight, border: `1px solid ${T.accentMid}`, borderRadius: 99, padding: "5px 18px", fontSize: 12, color: T.accent, fontFamily: "'Lato', sans-serif", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 18 }}>
+          <div style={{ display: "inline-block", background: "rgba(124,58,237,0.25)", border: "1px solid rgba(167,139,250,0.4)", borderRadius: 99, padding: "5px 18px", fontSize: 12, color: "#c4b5fd", fontFamily: "'Lato', sans-serif", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 18 }}>
             Computational Chemistry · Drug Discovery
           </div>
           <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "clamp(32px, 5vw, 54px)", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.1, color: T.text, marginBottom: 16 }}>
@@ -549,7 +550,7 @@ export default function App() {
 
                 {resultTab==="toxicity" && (
                   <>
-                    <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:T.radiusSm, padding:"12px 18px", marginBottom:20, color:"#b45309", fontSize:12.5, fontFamily:"'Lato', sans-serif" }}>
+                    <div style={{ background:"rgba(120,80,0,0.3)", border:"1px solid rgba(251,191,36,0.3)", borderRadius:T.radiusSm, padding:"12px 18px", marginBottom:20, color:"#fbbf24", fontSize:12.5, fontFamily:"'Lato', sans-serif" }}>
                       ⚠ Rule-based computational estimates only. Always validate experimentally.
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:14 }}>
@@ -572,7 +573,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div style={{ marginTop:24, padding:"14px 18px", background:"rgba(255,251,235,0.8)", borderRadius:T.radiusSm, fontSize:12, color:"#92400e", fontFamily:"'Lato', sans-serif", border:"1px solid #fde68a" }}>
+                <div style={{ marginTop:24, padding:"14px 18px", background:"rgba(60,40,0,0.4)", borderRadius:T.radiusSm, fontSize:12, color:"#fbbf24", fontFamily:"'Lato', sans-serif", border:"1px solid rgba(251,191,36,0.25)" }}>
                   ⚠ Computational predictions only. Properties computed using RDKit. QED from Bickerton et al. (2012).
                 </div>
               </div>
@@ -581,7 +582,7 @@ export default function App() {
             {!result && !loading && !error && (
               <div style={{ textAlign:"center", padding:"70px 0", color:T.accentMid }}>
                 <div style={{ fontSize:52, marginBottom:14, opacity:0.4 }}>⬡</div>
-                <div style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:16, color:T.textMuted }}>Enter a SMILES string to begin analysis</div>
+                <div style={{ fontFamily:"'Cormorant Garamond', serif", fontSize:16, color:"#7c5cbf" }}>Enter a SMILES string to begin analysis</div>
               </div>
             )}
           </>
