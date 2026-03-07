@@ -75,30 +75,36 @@ function FormulaDisplay({ formula, mw }) {
 // ── Batch Screening Component ──────────────────────────────────────────────────
 
 function BatchScreen() {
-  const [rows, setRows] = useState([{ smiles: "", name: "" }, { smiles: "", name: "" }, { smiles: "", name: "" }]);
+  const [text, setText] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState(null);
 
-  const addRow = () => setRows([...rows, { smiles: "", name: "" }]);
-  const removeRow = (i) => setRows(rows.filter((_, idx) => idx !== i));
-  const updateRow = (i, field, val) => {
-    const updated = [...rows];
-    updated[i][field] = val;
-    setRows(updated);
+  // Parse textarea: each line is "SMILES  optional_name"
+  const parseMolecules = (raw) => {
+    return raw.split("\n")
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith("#"))
+      .map(line => {
+        const parts = line.split(/\s+/);
+        const smiles = parts[0];
+        const name = parts.slice(1).join(" ") || null;
+        return { smiles, name };
+      });
   };
 
-  const validRows = rows.filter(r => r.smiles.trim());
+  const molecules = parseMolecules(text);
+  const validCount = molecules.filter(m => m.smiles).length;
 
   const analyze = async () => {
-    if (!validRows.length) return;
+    if (!validCount) return;
     setLoading(true); setError(null); setResults([]);
     try {
       const res = await fetch(`${API}/batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ molecules: validRows.map(r => ({ smiles: r.smiles.trim(), name: r.name || null })) }),
+        body: JSON.stringify({ molecules }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "API error");
@@ -108,13 +114,13 @@ function BatchScreen() {
   };
 
   const exportExcel = async () => {
-    if (!validRows.length) return;
+    if (!validCount) return;
     setExporting(true);
     try {
       const res = await fetch(`${API}/batch/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ molecules: validRows.map(r => ({ smiles: r.smiles.trim(), name: r.name || null })) }),
+        body: JSON.stringify({ molecules }),
       });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
@@ -126,57 +132,66 @@ function BatchScreen() {
     finally { setExporting(false); }
   };
 
-  const inputStyle = {
-    background: "#060d14", border: "1px solid #1e3a5c", borderRadius: 6,
-    padding: "8px 12px", color: "#e2e8f0", fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 13, outline: "none", width: "100%",
-  };
+  const exampleText = `CC(=O)Oc1ccccc1C(=O)O Aspirin
+CC(C)Cc1ccc(cc1)C(C)C(=O)O Ibuprofen
+Cn1cnc2c1c(=O)n(c(=O)n2C)C Caffeine
+CC(=O)Nc1ccc(O)cc1 Paracetamol`;
 
   return (
     <div>
-      {/* Input table */}
       <div style={{ background: "#0a1520", border: "1px solid #0f2030", borderRadius: 14, padding: 24, marginBottom: 20 }}>
-        <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 15, fontWeight: 700, marginBottom: 16, color: "#e2e8f0" }}>
-          Enter Molecules
-        </div>
 
-        {/* Header row */}
-        <div style={{ display: "grid", gridTemplateColumns: "32px 1fr 180px 36px", gap: 8, marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono', monospace" }}>#</div>
-          <div style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'JetBrains Mono', monospace" }}>SMILES String *</div>
-          <div style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'JetBrains Mono', monospace" }}>Name (optional)</div>
-          <div />
-        </div>
-
-        {rows.map((row, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "32px 1fr 180px 36px", gap: 8, marginBottom: 8, alignItems: "center" }}>
-            <div style={{ fontSize: 12, color: "#334155", fontFamily: "'JetBrains Mono', monospace", textAlign: "center" }}>{i + 1}</div>
-            <input value={row.smiles} onChange={e => updateRow(i, "smiles", e.target.value)}
-              placeholder="e.g. CC(=O)Oc1ccccc1C(=O)O"
-              style={inputStyle}
-              onFocus={e => e.target.style.borderColor = "#3b82f6"}
-              onBlur={e => e.target.style.borderColor = "#1e3a5c"} />
-            <input value={row.name} onChange={e => updateRow(i, "name", e.target.value)}
-              placeholder="e.g. Aspirin"
-              style={inputStyle}
-              onFocus={e => e.target.style.borderColor = "#3b82f6"}
-              onBlur={e => e.target.style.borderColor = "#1e3a5c"} />
-            <button onClick={() => removeRow(i)} disabled={rows.length <= 1}
-              style={{ background: "transparent", border: "1px solid #1e3a5c", borderRadius: 6, width: 32, height: 32, color: "#475569", cursor: rows.length > 1 ? "pointer" : "not-allowed", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              ✕
-            </button>
+        {/* Title + format hint */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 15, fontWeight: 700, color: "#e2e8f0", marginBottom: 4 }}>
+              Paste Molecules
+            </div>
+            <div style={{ fontSize: 12, color: "#475569", fontFamily: "'JetBrains Mono', monospace" }}>
+              One molecule per line: &nbsp;
+              <span style={{ color: "#60a5fa" }}>SMILES&nbsp;&nbsp;Name (optional)</span>
+            </div>
           </div>
-        ))}
+          <button onClick={() => setText(exampleText)}
+            style={{ background: "transparent", border: "1px solid #1e3a5c", borderRadius: 7, padding: "6px 14px", color: "#60a5fa", fontSize: 11, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", whiteSpace: "nowrap" }}>
+            Load examples
+          </button>
+        </div>
 
-        <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-          <button onClick={addRow} style={{ background: "transparent", border: "1px solid #1e3a5c", borderRadius: 8, padding: "9px 18px", color: "#60a5fa", fontSize: 12, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}>
-            + Add Row
-          </button>
-          <button onClick={analyze} disabled={loading || !validRows.length}
-            style={{ background: validRows.length ? "linear-gradient(135deg, #1d4ed8, #0ea5e9)" : "#0f1923", border: "none", borderRadius: 8, padding: "9px 24px", color: validRows.length ? "#fff" : "#334155", fontFamily: "'Space Mono', monospace", fontSize: 13, fontWeight: 700, cursor: validRows.length ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Big textarea */}
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder={`CC(=O)Oc1ccccc1C(=O)O  Aspirin\nCC(C)Cc1ccc(cc1)C(C)C(=O)O  Ibuprofen\nCn1cnc2c1c(=O)n(c(=O)n2C)C  Caffeine\n...`}
+          rows={10}
+          style={{
+            width: "100%", background: "#060d14", border: "1px solid #1e3a5c",
+            borderRadius: 8, padding: "14px 16px", color: "#e2e8f0",
+            fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+            outline: "none", resize: "vertical", lineHeight: 1.8,
+            transition: "border-color 0.15s",
+          }}
+          onFocus={e => e.target.style.borderColor = "#3b82f6"}
+          onBlur={e => e.target.style.borderColor = "#1e3a5c"}
+        />
+
+        {/* Live count */}
+        <div style={{ fontSize: 11, color: "#334155", fontFamily: "'JetBrains Mono', monospace", marginTop: 8, marginBottom: 16 }}>
+          {validCount > 0 ? `✓ ${validCount} molecule${validCount !== 1 ? "s" : ""} detected` : "Paste SMILES above to begin"}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={analyze} disabled={loading || !validCount}
+            style={{ background: validCount ? "linear-gradient(135deg, #1d4ed8, #0ea5e9)" : "#0f1923", border: "none", borderRadius: 8, padding: "11px 26px", color: validCount ? "#fff" : "#334155", fontFamily: "'Space Mono', monospace", fontSize: 13, fontWeight: 700, cursor: validCount ? "pointer" : "not-allowed", display: "flex", alignItems: "center", gap: 8 }}>
             {loading && <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span>}
-            {loading ? `Analyzing ${validRows.length} molecules...` : `Analyze ${validRows.length} Molecule${validRows.length !== 1 ? "s" : ""}`}
+            {loading ? `Analyzing ${validCount} molecules...` : `Analyze ${validCount} Molecule${validCount !== 1 ? "s" : ""}`}
           </button>
+          {text && (
+            <button onClick={() => { setText(""); setResults([]); setError(null); }}
+              style={{ background: "transparent", border: "1px solid #1e3a5c", borderRadius: 8, padding: "11px 18px", color: "#475569", fontSize: 12, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace" }}>
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
