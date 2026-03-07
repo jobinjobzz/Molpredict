@@ -2,6 +2,273 @@ import { useState, useEffect } from "react";
 
 const API = "https://molpredict.onrender.com";
 
+// ── Animated Molecular Background ─────────────────────────────────────────────
+function MolecularBackground() {
+  useEffect(() => {
+    const canvas = document.getElementById("mol-bg-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    let W = canvas.width = window.innerWidth;
+    let H = canvas.height = window.innerHeight;
+    let animId;
+
+    const resize = () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; };
+    window.addEventListener("resize", resize);
+
+    // Molecule atom class
+    class Atom {
+      constructor(x, y, r, color, vx, vy) {
+        this.x = x; this.y = y; this.r = r;
+        this.color = color; this.vx = vx; this.vy = vy;
+        this.angle = Math.random() * Math.PI * 2;
+        this.orbitR = 0; this.orbitSpeed = 0;
+      }
+      update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < -50) this.x = W + 50;
+        if (this.x > W + 50) this.x = -50;
+        if (this.y < -50) this.y = H + 50;
+        if (this.y > H + 50) this.y = -50;
+        this.angle += 0.008;
+      }
+      draw(ctx) {
+        // Glow
+        const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 2.5);
+        grd.addColorStop(0, this.color.replace("1)", "0.9)"));
+        grd.addColorStop(0.4, this.color.replace("1)", "0.4)"));
+        grd.addColorStop(1, this.color.replace("1)", "0)"));
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r * 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        // Core
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        // Shine
+        ctx.beginPath();
+        ctx.arc(this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fill();
+      }
+    }
+
+    // Molecule: a central atom + bonded atoms
+    class Molecule {
+      constructor() { this.reset(); }
+      reset() {
+        this.cx = Math.random() * W;
+        this.cy = Math.random() * H;
+        this.vx = (Math.random() - 0.5) * 0.4;
+        this.vy = (Math.random() - 0.5) * 0.4;
+        this.angle = Math.random() * Math.PI * 2;
+        this.rotSpeed = (Math.random() - 0.5) * 0.005;
+        const palettes = [
+          ["rgba(100,180,255,1)", "rgba(255,80,80,1)", "rgba(200,200,200,1)"],
+          ["rgba(140,100,255,1)", "rgba(80,220,180,1)", "rgba(255,200,80,1)"],
+          ["rgba(60,160,255,1)",  "rgba(255,120,60,1)", "rgba(180,180,255,1)"],
+        ];
+        this.palette = palettes[Math.floor(Math.random() * palettes.length)];
+        this.bondLen = 40 + Math.random() * 30;
+        const types = ["linear", "bent", "trigonal", "tetrahedral"];
+        this.type = types[Math.floor(Math.random() * types.length)];
+        this.size = 0.5 + Math.random() * 0.8;
+      }
+      getBondPositions() {
+        const positions = [];
+        if (this.type === "linear") {
+          positions.push([this.angle, this.bondLen], [this.angle + Math.PI, this.bondLen]);
+        } else if (this.type === "bent") {
+          positions.push([this.angle, this.bondLen], [this.angle + 2.1, this.bondLen * 0.9]);
+        } else if (this.type === "trigonal") {
+          for (let i = 0; i < 3; i++) positions.push([this.angle + (i * Math.PI * 2) / 3, this.bondLen]);
+        } else {
+          for (let i = 0; i < 4; i++) positions.push([this.angle + (i * Math.PI * 2) / 4, this.bondLen * (i % 2 === 0 ? 1 : 0.85)]);
+        }
+        return positions;
+      }
+      draw(ctx) {
+        const bonds = this.getBondPositions();
+        const r = 7 * this.size;
+
+        // Draw bonds
+        bonds.forEach(([a, d]) => {
+          const bx = this.cx + Math.cos(a) * d;
+          const by = this.cy + Math.sin(a) * d;
+          const grad = ctx.createLinearGradient(this.cx, this.cy, bx, by);
+          grad.addColorStop(0, this.palette[0].replace("1)", "0.6)"));
+          grad.addColorStop(1, this.palette[1].replace("1)", "0.4)"));
+          ctx.beginPath();
+          ctx.moveTo(this.cx, this.cy);
+          ctx.lineTo(bx, by);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 2 * this.size;
+          ctx.stroke();
+        });
+
+        // Central atom
+        new Atom(this.cx, this.cy, r, this.palette[0], 0, 0).draw(ctx);
+
+        // Bonded atoms
+        bonds.forEach(([a, d], i) => {
+          const bx = this.cx + Math.cos(a) * d;
+          const by = this.cy + Math.sin(a) * d;
+          const color = i === 0 ? this.palette[1] : (i === 1 ? this.palette[2] : this.palette[i % 3]);
+          new Atom(bx, by, r * 0.75, color, 0, 0).draw(ctx);
+        });
+      }
+      update() {
+        this.cx += this.vx; this.cy += this.vy;
+        this.angle += this.rotSpeed;
+        if (this.cx < -100) this.cx = W + 100;
+        if (this.cx > W + 100) this.cx = -100;
+        if (this.cy < -100) this.cy = H + 100;
+        if (this.cy > H + 100) this.cy = -100;
+      }
+    }
+
+    // DNA helix
+    class DNAHelix {
+      constructor(x, y) {
+        this.x = x; this.y = y;
+        this.t = Math.random() * Math.PI * 2;
+        this.speed = 0.008 + Math.random() * 0.006;
+        this.height = 200 + Math.random() * 150;
+        this.width = 25 + Math.random() * 15;
+      }
+      draw(ctx) {
+        const steps = 40;
+        const stepH = this.height / steps;
+        for (let i = 0; i < steps; i++) {
+          const y1 = this.y - this.height / 2 + i * stepH;
+          const y2 = y1 + stepH;
+          const x1a = this.x + Math.cos(this.t + i * 0.35) * this.width;
+          const x1b = this.x - Math.cos(this.t + i * 0.35) * this.width;
+          const x2a = this.x + Math.cos(this.t + (i + 1) * 0.35) * this.width;
+          const x2b = this.x - Math.cos(this.t + (i + 1) * 0.35) * this.width;
+
+          // Strand A
+          ctx.beginPath(); ctx.moveTo(x1a, y1); ctx.lineTo(x2a, y2);
+          ctx.strokeStyle = "rgba(100,180,255,0.5)"; ctx.lineWidth = 1.5; ctx.stroke();
+          // Strand B
+          ctx.beginPath(); ctx.moveTo(x1b, y1); ctx.lineTo(x2b, y2);
+          ctx.strokeStyle = "rgba(180,100,255,0.5)"; ctx.lineWidth = 1.5; ctx.stroke();
+          // Base pairs every 3 steps
+          if (i % 3 === 0) {
+            ctx.beginPath(); ctx.moveTo(x1a, y1); ctx.lineTo(x1b, y1);
+            const pairGrad = ctx.createLinearGradient(x1a, y1, x1b, y1);
+            pairGrad.addColorStop(0, "rgba(100,220,255,0.6)");
+            pairGrad.addColorStop(0.5, "rgba(255,150,255,0.6)");
+            pairGrad.addColorStop(1, "rgba(100,220,255,0.6)");
+            ctx.strokeStyle = pairGrad; ctx.lineWidth = 1; ctx.stroke();
+            // Dots at ends
+            ctx.beginPath(); ctx.arc(x1a, y1, 2.5, 0, Math.PI*2);
+            ctx.fillStyle = "rgba(100,220,255,0.8)"; ctx.fill();
+            ctx.beginPath(); ctx.arc(x1b, y1, 2.5, 0, Math.PI*2);
+            ctx.fillStyle = "rgba(255,150,255,0.8)"; ctx.fill();
+          }
+        }
+        this.t += this.speed;
+      }
+    }
+
+    // Floating particles
+    class Particle {
+      constructor() { this.reset(); }
+      reset() {
+        this.x = Math.random() * W; this.y = Math.random() * H;
+        this.r = 1 + Math.random() * 2;
+        this.vx = (Math.random() - 0.5) * 0.3; this.vy = (Math.random() - 0.5) * 0.3;
+        this.alpha = 0.2 + Math.random() * 0.5;
+        this.color = Math.random() > 0.5 ? "100,180,255" : "180,100,255";
+      }
+      update() {
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < 0 || this.x > W || this.y < 0 || this.y > H) this.reset();
+      }
+      draw(ctx) {
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(${this.color},${this.alpha})`; ctx.fill();
+      }
+    }
+
+    // Create scene objects
+    const molecules = Array.from({length: 12}, () => new Molecule());
+    const dnaHelices = [
+      new DNAHelix(W * 0.15, H * 0.5),
+      new DNAHelix(W * 0.85, H * 0.45),
+      new DNAHelix(W * 0.5, H * 0.85),
+    ];
+    const particles = Array.from({length: 80}, () => new Particle());
+
+    // Connection lines between nearby molecules
+    const drawConnections = () => {
+      for (let i = 0; i < molecules.length; i++) {
+        for (let j = i + 1; j < molecules.length; j++) {
+          const dx = molecules[i].cx - molecules[j].cx;
+          const dy = molecules[i].cy - molecules[j].cy;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 200) {
+            ctx.beginPath();
+            ctx.moveTo(molecules[i].cx, molecules[i].cy);
+            ctx.lineTo(molecules[j].cx, molecules[j].cy);
+            ctx.strokeStyle = `rgba(140,100,255,${0.15 * (1 - dist/200)})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+    };
+
+    // Animate
+    const animate = () => {
+      ctx.clearRect(0, 0, W, H);
+
+      // Deep space background
+      const bgGrad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H));
+      bgGrad.addColorStop(0, "#1a0840");
+      bgGrad.addColorStop(0.5, "#0d0525");
+      bgGrad.addColorStop(1, "#050110");
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // Subtle grid
+      ctx.strokeStyle = "rgba(100,60,200,0.06)";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+      for (let y = 0; y < H; y += 60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+      // Draw particles
+      particles.forEach(p => { p.update(); p.draw(ctx); });
+
+      // Draw DNA helices
+      dnaHelices.forEach(d => d.draw(ctx));
+
+      // Draw connections
+      drawConnections();
+
+      // Draw molecules
+      molecules.forEach(m => { m.update(); m.draw(ctx); });
+
+      // Central glow
+      const cg = ctx.createRadialGradient(W/2, H*0.35, 0, W/2, H*0.35, 300);
+      cg.addColorStop(0, "rgba(120,60,255,0.12)");
+      cg.addColorStop(1, "rgba(120,60,255,0)");
+      ctx.fillStyle = cg; ctx.fillRect(0,0,W,H);
+
+      animId = requestAnimationFrame(animate);
+    };
+
+    animate();
+    return () => { cancelAnimationFrame(animId); window.removeEventListener("resize", resize); };
+  }, []);
+
+  return <canvas id="mol-bg-canvas" style={{ position:"fixed", inset:0, zIndex:0, pointerEvents:"none" }} />;
+}
+
+
+
 // ── Design tokens — light, elegant, violet ─────────────────────────────────────
 const T = {
   bg:          "#0f0a1e",
@@ -31,82 +298,7 @@ const statusColor = {
   neutral: { bg: "rgba(109,40,217,0.2)", border: "rgba(167,139,250,0.3)", text: "#c4b5fd", dot: "#8b5cf6", bar: "#a78bfa" },
 };
 
-// ── SVG chemical structure backgrounds ────────────────────────────────────────
-// Benzene, caffeine-like, aspirin-like rings drawn as decorative SVG paths
-const BG_MOLECULES = `
-<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
-  <defs>
-    <style>
-      .mol { fill:none; stroke:rgba(109,40,217,0.22); stroke-width:2; stroke-linecap:round; }
-      .mol2 { fill:none; stroke:rgba(139,92,246,0.14); stroke-width:1.5; stroke-linecap:round; }
-    </style>
-  </defs>
-  <!-- Benzene ring top-left -->
-  <g transform="translate(60,80) scale(2.2)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <polygon class="mol2" points="20,8 32,14.9 32,28.7 20,35.6 8,28.7 8,14.9"/>
-    <line class="mol" x1="20" y1="0" x2="20" y2="-18"/>
-    <line class="mol" x1="40" y1="11.5" x2="56" y2="2"/>
-    <line class="mol" x1="40" y1="34.6" x2="56" y2="43"/>
-    <line class="mol" x1="20" y1="46.2" x2="20" y2="64"/>
-    <line class="mol" x1="0" y1="34.6" x2="-16" y2="43"/>
-  </g>
-  <!-- Fused rings center-right -->
-  <g transform="translate(680,120) scale(2.0)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <polygon class="mol" points="40,11.5 60,0 80,11.5 80,34.6 60,46.2 40,34.6"/>
-    <polygon class="mol2" points="20,8 32,14.9 32,28.7 20,35.6 8,28.7 8,14.9"/>
-    <line class="mol" x1="20" y1="0" x2="20" y2="-15"/>
-    <line class="mol" x1="80" y1="11.5" x2="96" y2="2"/>
-    <line class="mol" x1="80" y1="34.6" x2="96" y2="44"/>
-    <line class="mol" x1="60" y1="46.2" x2="60" y2="62"/>
-    <line class="mol" x1="0" y1="34.6" x2="-14" y2="44"/>
-    <line class="mol" x1="0" y1="11.5" x2="-14" y2="2"/>
-  </g>
-  <!-- Caffeine-like purine bottom-left -->
-  <g transform="translate(40,480) scale(1.8)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <rect class="mol" x="40" y="8" width="38" height="30" rx="3"/>
-    <line class="mol" x1="20" y1="46.2" x2="20" y2="62"/>
-    <line class="mol" x1="0" y1="11.5" x2="-14" y2="2"/>
-    <line class="mol" x1="78" y1="8" x2="92" y2="-2"/>
-    <line class="mol" x1="78" y1="38" x2="92" y2="48"/>
-    <line class="mol" x1="59" y1="8" x2="59" y2="-8"/>
-  </g>
-  <!-- Steroid-like fused ring bottom-right -->
-  <g transform="translate(760,440) scale(1.9)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <polygon class="mol2" points="40,11.5 60,0 80,11.5 80,34.6 60,46.2 40,34.6"/>
-    <polygon class="mol" points="80,11.5 100,0 120,11.5 120,34.6 100,46.2 80,34.6"/>
-    <rect class="mol" x="120" y="5" width="32" height="36" rx="3"/>
-    <line class="mol" x1="20" y1="46.2" x2="20" y2="62"/>
-    <line class="mol" x1="100" y1="46.2" x2="100" y2="62"/>
-    <line class="mol" x1="152" y1="5" x2="166" y2="-4"/>
-    <line class="mol" x1="0" y1="11.5" x2="-12" y2="2"/>
-  </g>
-  <!-- Small ring top-center -->
-  <g transform="translate(380,20) scale(1.4)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <line class="mol" x1="20" y1="0" x2="20" y2="-14"/>
-    <line class="mol" x1="40" y1="11.5" x2="54" y2="2"/>
-    <line class="mol" x1="40" y1="34.6" x2="54" y2="43"/>
-  </g>
-  <!-- Indole-like top-right area -->
-  <g transform="translate(820,240) scale(1.6)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <polygon class="mol2" points="40,11.5 58,3 72,18 65,38 45,40 40,34.6"/>
-    <line class="mol" x1="20" y1="0" x2="20" y2="-14"/>
-    <line class="mol" x1="0" y1="11.5" x2="-14" y2="4"/>
-    <line class="mol" x1="72" y1="18" x2="86" y2="10"/>
-  </g>
-  <!-- Lone ring center-left -->
-  <g transform="translate(120,310) scale(1.5)">
-    <polygon class="mol" points="20,0 40,11.5 40,34.6 20,46.2 0,34.6 0,11.5"/>
-    <polygon class="mol2" points="20,8 32,14.9 32,28.7 20,35.6 8,28.7 8,14.9"/>
-    <line class="mol" x1="40" y1="11.5" x2="56" y2="2"/>
-    <line class="mol" x1="0" y1="34.6" x2="-14" y2="44"/>
-  </g>
-</svg>`;
+
 
 // ── Components ─────────────────────────────────────────────────────────────────
 
@@ -419,20 +611,8 @@ export default function App() {
         @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
       `}</style>
 
-      {/* 3D Molecular photo background */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        backgroundImage: "url('https://images.unsplash.com/photo-1628595351029-c2bf17511435?w=1920&q=80')",
-        backgroundSize: "cover", backgroundPosition: "center",
-        filter: "brightness(0.45) saturate(1.2)",
-      }} />
-
-      {/* Light frosted overlay to keep content readable */}
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
-        background: "linear-gradient(160deg, rgba(15,5,40,0.55) 0%, rgba(50,20,100,0.45) 50%, rgba(15,5,40,0.55) 100%)",
-        backdropFilter: "blur(1px)",
-      }} />
+      {/* Animated molecular background */}
+      <MolecularBackground />
 
       {/* Header */}
       <div style={{ position: "relative", zIndex: 10, borderBottom: `1px solid ${T.border}`, padding: "18px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(10,4,30,0.75)", backdropFilter: "blur(20px)", boxShadow: "0 1px 20px rgba(0,0,0,0.4)" }}>
