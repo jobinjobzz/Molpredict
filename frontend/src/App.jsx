@@ -182,14 +182,14 @@ function LipinskiBadge({ lipinski }) {
 function ExamplePill({ mol, onSelect }) {
   return (
     <button onClick={() => onSelect(mol)} style={{
-      background: T.accentLight, border: `1px solid ${T.accentMid}`,
+      background: "rgba(124,58,237,0.3)", border: "1px solid rgba(167,139,250,0.5)",
       borderRadius: 99, padding: "5px 16px",
-      color: T.accent, fontSize: 12, cursor: "pointer",
+      color: "#ffffff", fontSize: 12, cursor: "pointer",
       fontFamily: "'Lato', sans-serif", fontWeight: 600,
       transition: "all 0.15s", whiteSpace: "nowrap",
     }}
-      onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = T.accentLight; e.currentTarget.style.color = T.accent; }}
+      onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "rgba(124,58,237,0.3)"; e.currentTarget.style.borderColor = "rgba(167,139,250,0.5)"; }}
     >
       {mol.name}
     </button>
@@ -422,7 +422,7 @@ export default function App() {
       {/* 3D Molecular photo background */}
       <div style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        backgroundImage: "url('https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=1920&q=80')",
+        backgroundImage: "url('https://images.unsplash.com/photo-1628595351029-c2bf17511435?w=1920&q=80')",
         backgroundSize: "cover", backgroundPosition: "center",
         filter: "brightness(0.45) saturate(1.2)",
       }} />
@@ -504,7 +504,7 @@ export default function App() {
 
             {examples.length > 0 && (
               <div style={{ marginBottom: 32, animation: "fadeUp 0.5s ease 0.2s both" }}>
-                <div style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, marginBottom: 10 }}>Try an example →</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, marginBottom: 10 }}>Try an example →</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{examples.map(mol => <ExamplePill key={mol.name} mol={mol} onSelect={selectExample} />)}</div>
               </div>
             )}
@@ -573,7 +573,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div style={{ marginTop:24, padding:"14px 18px", background:"rgba(60,40,0,0.4)", borderRadius:T.radiusSm, fontSize:12, color:"#fbbf24", fontFamily:"'Lato', sans-serif", border:"1px solid rgba(251,191,36,0.25)" }}>
+                <div style={{ marginTop:24, padding:"14px 18px", background:"rgba(255,255,255,0.08)", borderRadius:T.radiusSm, fontSize:12, color:"rgba(255,255,255,0.7)", fontFamily:"'Lato', sans-serif", border:"1px solid rgba(255,255,255,0.15)" }}>
                   ⚠ Computational predictions only. Properties computed using RDKit. QED from Bickerton et al. (2012).
                 </div>
               </div>
