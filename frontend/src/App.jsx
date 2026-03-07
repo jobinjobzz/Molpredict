@@ -4,11 +4,11 @@ const API = "https://molpredict.onrender.com";
 
 // ── Design tokens — light, elegant, violet ─────────────────────────────────────
 const T = {
-  bg:          "#f8f7ff",
-  bgCard:      "rgba(255,255,255,0.82)",
-  bgCardHover: "rgba(255,255,255,0.96)",
-  bgInput:     "rgba(255,255,255,0.9)",
-  border:      "rgba(139,92,246,0.18)",
+  bg:          "#ddd6f5",
+  bgCard:      "rgba(255,255,255,0.88)",
+  bgCardHover: "rgba(255,255,255,0.98)",
+  bgInput:     "rgba(255,255,255,0.95)",
+  border:      "rgba(109,40,217,0.25)",
   borderFocus: "#7c3aed",
   text:        "#1e1040",
   textMuted:   "#6b7280",
@@ -37,8 +37,8 @@ const BG_MOLECULES = `
 <svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
   <defs>
     <style>
-      .mol { fill:none; stroke:rgba(124,58,237,0.07); stroke-width:1.5; stroke-linecap:round; }
-      .mol2 { fill:none; stroke:rgba(168,85,247,0.05); stroke-width:1.2; stroke-linecap:round; }
+      .mol { fill:none; stroke:rgba(109,40,217,0.22); stroke-width:2; stroke-linecap:round; }
+      .mol2 { fill:none; stroke:rgba(139,92,246,0.14); stroke-width:1.5; stroke-linecap:round; }
     </style>
   </defs>
   <!-- Benzene ring top-left -->
@@ -425,7 +425,7 @@ export default function App() {
         dangerouslySetInnerHTML={{ __html: BG_MOLECULES }} />
 
       {/* Soft gradient overlay */}
-      <div style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", background: "radial-gradient(ellipse at 20% 20%, rgba(237,233,254,0.6) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(245,243,255,0.5) 0%, transparent 60%)" }} />
+      <div style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", background: "radial-gradient(ellipse at 20% 20%, rgba(200,185,240,0.25) 0%, transparent 60%), radial-gradient(ellipse at 80% 80%, rgba(180,165,230,0.2) 0%, transparent 60%)" }} />
 
       {/* Header */}
       <div style={{ position: "relative", zIndex: 10, borderBottom: `1px solid ${T.border}`, padding: "18px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.85)", backdropFilter: "blur(16px)", boxShadow: "0 1px 20px rgba(124,58,237,0.08)" }}>
