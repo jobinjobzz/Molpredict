@@ -4,7 +4,17 @@ from pydantic import BaseModel
 from typing import Optional
 import io, httpx
 
-app = FastAPI(title="MolPredict API", version="2.0.0")
+# RDKit imports at top level
+try:
+    from rdkit import Chem
+    from rdkit.Chem import Descriptors, Crippen, QED
+    from rdkit.Chem import rdMolDescriptors as rdmd
+    RDKIT_OK = True
+except ImportError:
+    RDKIT_OK = False
+    print("WARNING: RDKit not available")
+
+app = FastAPI(title="MolPredict API", version="2.0.1")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -74,7 +84,6 @@ class MoleculeResponse(BaseModel):
 # ── Toxicity ───────────────────────────────────────────────────────────────────
 def predict_toxicity(mol):
     try:
-        from rdkit.Chem import Descriptors, Crippen, rdMolDescriptors as rdmd, Chem
         mw=Descriptors.MolWt(mol); logp=Crippen.MolLogP(mol)
         tpsa=Descriptors.TPSA(mol); hbd=rdmd.CalcNumHBD(mol)
         arom=rdmd.CalcNumAromaticRings(mol); hba=rdmd.CalcNumHBA(mol)
@@ -105,7 +114,6 @@ def predict_toxicity(mol):
 # ── ADMET ──────────────────────────────────────────────────────────────────────
 def compute_admet(mol):
     try:
-        from rdkit.Chem import Descriptors, Crippen, rdMolDescriptors as rdmd, Chem
         mw=Descriptors.MolWt(mol); logp=Crippen.MolLogP(mol)
         tpsa=Descriptors.TPSA(mol); hbd=rdmd.CalcNumHBD(mol)
         hba=rdmd.CalcNumHBA(mol); rot=rdmd.CalcNumRotatableBonds(mol)
@@ -164,11 +172,7 @@ def compute_admet(mol):
 
 # ── Core computation ───────────────────────────────────────────────────────────
 def compute_properties(smiles: str) -> MoleculeResponse:
-    try:
-        from rdkit import Chem
-        from rdkit.Chem import Descriptors, rdMolDescriptors, Crippen, QED
-        from rdkit.Chem import rdMolDescriptors as rdmd
-    except ImportError:
+    if not RDKIT_OK:
         return MoleculeResponse(smiles=smiles,name=None,valid=False,molecular_formula=None,
             molecular_weight=None,properties=[],lipinski={},toxicity=[],admet=[],structure_url=None,error="RDKit not installed.")
     mol=Chem.MolFromSmiles(smiles)
