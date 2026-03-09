@@ -15,7 +15,7 @@ except ImportError:
     RDKIT_OK = False
     print("WARNING: RDKit not available")
 
-app = FastAPI(title="MolPredict API", version="2.0.3")
+app = FastAPI(title="MolPredict API", version="2.0.4")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -324,15 +324,60 @@ def batch_export(req: BatchRequest):
 
 @app.post("/lookup")
 async def name_lookup(req: NameLookupRequest):
-    query=req.query.strip()
-    async with httpx.AsyncClient(timeout=10) as client:
+    query = req.query.strip()
+    
+    # Common drugs hardcoded as instant fallback
+    COMMON = {
+        "aspirin": "CC(=O)Oc1ccccc1C(=O)O",
+        "ibuprofen": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+        "caffeine": "Cn1cnc2c1c(=O)n(c(=O)n2C)C",
+        "paracetamol": "CC(=O)Nc1ccc(O)cc1",
+        "acetaminophen": "CC(=O)Nc1ccc(O)cc1",
+        "metformin": "CN(C)C(=N)NC(=N)N",
+        "sildenafil": "CCCC1=NN(C)C(=C1C(=O)c1ccc(cc1)S(=O)(=O)N1CCN(CC1)C)c1nc(cc(=O)[nH]1)c1cccc(c1)OCC",
+        "atorvastatin": "CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccccc2)c(-c2ccc(F)cc2)n1CCC(O)CC(O)CC(=O)O",
+        "omeprazole": "COc1ccc2[nH]c(S(=O)Cc3ncc(C)c(OC)c3C)nc2c1",
+        "amoxicillin": "CC1(C)SC2C(NC(=O)C(N)c3ccccc3)C(=O)N2C1C(=O)O",
+        "penicillin": "CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O",
+        "morphine": "OC1=CC=C2CC3N(C)CCC34C2=C1OC4",
+        "glucose": "OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O",
+        "dopamine": "NCCc1ccc(O)c(O)c1",
+        "serotonin": "NCCc1c[nH]c2ccc(O)cc12",
+        "adrenaline": "CNC[C@@H](O)c1ccc(O)c(O)c1",
+        "epinephrine": "CNC[C@@H](O)c1ccc(O)c(O)c1",
+        "cholesterol": "CC(C)CCCC(C)C1CCC2C3CC=C4CC(O)CCC4(C)C3CCC12C",
+        "testosterone": "CC12CCC3C(C1CCC2=O)CCC4=CC(=O)CCC34C",
+        "estradiol": "OC1=CC2=C(CC[C@@H]3[C@@H]2CC[C@]4(C)[C@@H]3CC[C@@H]4O)C=C1",
+        "warfarin": "CC(=O)CC(c1ccccc1)c1c(O)c2ccccc2oc1=O",
+        "paclitaxel": "O=C(O[C@@H]1C[C@]2(O)C(=O)[C@@H](OC(=O)c3ccccc3)[C@@]3(C)[C@H](OC(C)=O)[C@@H](O)[C@H](c4ccccc4)[C@@H]3[C@@H]2CC1)c1ccccc1",
+        "cisplatin": "[NH3][Pt](Cl)(Cl)[NH3]",
+    }
+    
+    q_lower = query.lower()
+    if q_lower in COMMON:
+        print(f"Lookup hit: {query} -> hardcoded")
+        return {"found": True, "smiles": COMMON[q_lower], "query": query, "source": "local"}
+    
+    # Try PubChem via backend
+    from urllib.parse import quote
+    async with httpx.AsyncClient(timeout=15) as client:
         try:
-            r=await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{query}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON")
-            if r.status_code==200:
-                props=r.json()["PropertyTable"]["Properties"][0]
-                return {"found":True,"smiles":props.get("IsomericSMILES",""),"iupac_name":props.get("IUPACName",""),"formula":props.get("MolecularFormula",""),"mw":props.get("MolecularWeight",""),"cid":props.get("CID",""),"query":query}
-        except Exception as e: print(f"Lookup error: {e}")
-    return {"found":False,"query":query,"smiles":"","iupac_name":"","formula":"","mw":"","cid":""}
+            url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{quote(query)}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON"
+            r = await client.get(url)
+            print(f"PubChem lookup status: {r.status_code} for '{query}'")
+            if r.status_code == 200:
+                data = r.json()
+                props = data["PropertyTable"]["Properties"][0]
+                smiles = props.get("IsomericSMILES", "")
+                print(f"PubChem returned SMILES: {smiles[:50] if smiles else 'EMPTY'}")
+                if smiles:
+                    return {"found": True, "smiles": smiles, "iupac_name": props.get("IUPACName",""),
+                            "formula": props.get("MolecularFormula",""), "mw": props.get("MolecularWeight",""),
+                            "cid": props.get("CID",""), "query": query, "source": "pubchem"}
+        except Exception as e:
+            print(f"Lookup error for '{query}': {e}")
+    
+    return {"found": False, "query": query, "smiles": "", "source": "none"}
 
 @app.post("/similarity")
 async def similarity_search(req: SimilarityRequest):

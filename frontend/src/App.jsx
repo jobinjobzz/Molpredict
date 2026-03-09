@@ -748,29 +748,40 @@ export default function App() {
     if (!q) return;
     setNameLoading(true); setNameError(null);
     try {
-      // Call PubChem directly from frontend - no backend needed, avoids CORS issues
-      const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(q)}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        const props = data?.PropertyTable?.Properties?.[0];
-        if (props?.IsomericSMILES) {
-          setSmiles(props.IsomericSMILES);
-          setMolName(q);
-          setNameQuery("");
-          setNameError(null);
-          return;
-        }
-      }
-      // Fallback: try backend
+      // Step 1: Try PubChem directly from browser
+      let smileResult = null;
       try {
-        const r2 = await fetch(`${API}/lookup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
-        const d2 = await r2.json();
-        if (d2.found) { setSmiles(d2.smiles); setMolName(q); setNameQuery(""); setNameError(null); return; }
-      } catch(_) {}
-      setNameError(`"${q}" not found in PubChem. Try the generic or IUPAC name.`);
+        const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(q)}/property/IsomericSMILES,MolecularFormula,MolecularWeight/JSON`;
+        const res = await fetch(pubchemUrl);
+        const text = await res.text();
+        const data = JSON.parse(text);
+        const props = data?.PropertyTable?.Properties?.[0];
+        if (props?.IsomericSMILES) smileResult = props.IsomericSMILES;
+      } catch(e1) { /* PubChem direct failed, try backend */ }
+
+      // Step 2: If direct failed, try backend
+      if (!smileResult) {
+        try {
+          const r2 = await fetch(`${API}/lookup`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: q })
+          });
+          const d2 = await r2.json();
+          if (d2.found && d2.smiles) smileResult = d2.smiles;
+        } catch(e2) { /* backend also failed */ }
+      }
+
+      if (smileResult) {
+        setSmiles(smileResult);
+        setMolName(q);
+        setNameQuery("");
+        setNameError(null);
+      } else {
+        setNameError(`"${q}" not found. Try the full generic name (e.g. "ibuprofen" not "advil").`);
+      }
     } catch(e) {
-      setNameError("Lookup failed — check your internet connection.");
+      setNameError("Lookup failed — check your connection and try again.");
     } finally {
       setNameLoading(false);
     }
