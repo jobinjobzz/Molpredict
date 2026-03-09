@@ -708,8 +708,22 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState("checking");
   const [resultTab, setResultTab] = useState("properties");
   const [mainTab, setMainTab] = useState("single");
+  const [nameQuery, setNameQuery] = useState("");
+  const [nameLoading, setNameLoading] = useState(false);
+  const [nameError, setNameError] = useState(null);
+  const [simResults, setSimResults] = useState([]);
+  const [simLoading, setSimLoading] = useState(false);
+  const [simError, setSimError] = useState(null);
+  const [simThreshold, setSimThreshold] = useState(0.7);
+  const [pdfExporting, setPdfExporting] = useState(false);
 
   useEffect(() => {
+    // Load jsPDF for PDF export
+    if (!window.jspdf) {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      document.head.appendChild(s);
+    }
     fetch(`${API}/examples`).then(r => r.json()).then(setExamples).catch(() => {});
     const check = () => fetch(`${API}/health`).then(r => r.ok ? setApiStatus("online") : setApiStatus("offline")).catch(() => setApiStatus("offline"));
     check(); const iv = setInterval(check, 30000); return () => clearInterval(iv);
@@ -728,6 +742,154 @@ export default function App() {
   };
 
   const selectExample = (mol) => { setSmiles(mol.smiles); setMolName(mol.name); setResult(null); setError(null); };
+
+  const lookupName = async () => {
+    if (!nameQuery.trim()) return;
+    setNameLoading(true); setNameError(null);
+    try {
+      const res = await fetch(`${API}/lookup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: nameQuery.trim() }) });
+      const data = await res.json();
+      if (data.found) { setSmiles(data.smiles); setMolName(nameQuery.trim()); setNameQuery(""); setNameError(null); }
+      else setNameError(`"${nameQuery}" not found in PubChem. Try a different name or spelling.`);
+    } catch(e) { setNameError("Lookup failed. Check your connection."); }
+    finally { setNameLoading(false); }
+  };
+
+  const runSimilarity = async () => {
+    if (!result || !result.smiles) return;
+    setSimLoading(true); setSimError(null); setSimResults([]);
+    try {
+      const res = await fetch(`${API}/similarity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ smiles: result.smiles, threshold: simThreshold, max_results: 10 }) });
+      const data = await res.json();
+      if (data.error) setSimError(data.error);
+      else setSimResults(data.results || []);
+    } catch(e) { setSimError("Similarity search failed."); }
+    finally { setSimLoading(false); }
+  };
+
+  const exportPDF = async () => {
+    if (!result) return;
+    setPdfExporting(true);
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const W = 210; const margin = 18;
+
+      // Background
+      doc.setFillColor(13, 4, 30);
+      doc.rect(0, 0, W, 297, "F");
+
+      // Header bar
+      doc.setFillColor(50, 15, 110);
+      doc.rect(0, 0, W, 28, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18); doc.setFont("helvetica", "bold");
+      doc.text("MolPredict Report", margin, 18);
+      doc.setFontSize(9); doc.setFont("helvetica", "normal");
+      doc.setTextColor(196, 181, 253);
+      doc.text(new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }), W - margin, 18, { align: "right" });
+
+      let y = 38;
+
+      // Molecule name + formula
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16); doc.setFont("helvetica", "bold");
+      doc.text(result.name || "Unnamed Molecule", margin, y); y += 8;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.setTextColor(167, 139, 250);
+      doc.text(`Formula: ${result.molecular_formula || "—"}   MW: ${result.molecular_weight || "—"} Da   SMILES: ${result.smiles.slice(0,50)}${result.smiles.length>50?"...":""}`, margin, y); y += 10;
+
+      // Lipinski badge
+      const lip = result.lipinski;
+      doc.setFillColor(lip.pass ? 20 : 100, lip.pass ? 83 : 20, lip.pass ? 45 : 45);
+      doc.roundedRect(margin, y, 80, 10, 3, 3, "F");
+      doc.setTextColor(lip.pass ? 74 : 251, lip.pass ? 222 : 113, lip.pass ? 128 : 133);
+      doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.text(`${lip.pass ? "✓" : "✗"} Lipinski Ro5: ${lip.pass ? "PASS" : "FAIL"} — ${lip.violations} violation(s)`, margin + 4, y + 6.5);
+      y += 16;
+
+      // Section: Physicochemical Properties
+      doc.setFillColor(30, 12, 70);
+      doc.rect(margin, y, W - margin*2, 7, "F");
+      doc.setTextColor(196, 181, 253); doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.text("PHYSICOCHEMICAL PROPERTIES", margin + 3, y + 5); y += 11;
+
+      const statusRGB = { good: [74,222,128], warning: [251,191,36], bad: [251,113,133] };
+      const cols = 3; const colW = (W - margin*2) / cols;
+      result.properties.forEach((p, i) => {
+        const col = i % cols; const row = Math.floor(i / cols);
+        const px = margin + col * colW; const py = y + row * 18;
+        doc.setFillColor(20, 8, 50);
+        doc.roundedRect(px, py, colW - 2, 16, 2, 2, "F");
+        doc.setTextColor(167,139,250); doc.setFontSize(7); doc.setFont("helvetica","normal");
+        doc.text(p.name.toUpperCase(), px+3, py+5);
+        const rgb = statusRGB[p.status] || [167,139,250];
+        doc.setTextColor(...rgb); doc.setFontSize(11); doc.setFont("helvetica","bold");
+        doc.text(`${p.value}${p.unit ? " "+p.unit : ""}`, px+3, py+12);
+      });
+      y += Math.ceil(result.properties.length / cols) * 18 + 6;
+
+      // Section: ADMET
+      if (result.admet && result.admet.length > 0) {
+        doc.setFillColor(30, 12, 70);
+        doc.rect(margin, y, W - margin*2, 7, "F");
+        doc.setTextColor(196,181,253); doc.setFontSize(9); doc.setFont("helvetica","bold");
+        doc.text("ADMET PROFILE", margin+3, y+5); y += 11;
+        const categories = [...new Set(result.admet.map(a => a.category))];
+        categories.forEach(cat => {
+          doc.setTextColor(167,139,250); doc.setFontSize(8); doc.setFont("helvetica","bold");
+          doc.text(cat.toUpperCase(), margin, y); y += 5;
+          const items = result.admet.filter(a => a.category === cat);
+          items.forEach((a, i) => {
+            const col = i % 2; const row = Math.floor(i / 2);
+            if (i % 2 === 0 && i > 0) y += 0;
+            const px = margin + col * ((W-margin*2)/2);
+            const py = y + Math.floor(i/2) * 12;
+            doc.setFillColor(20,8,50);
+            doc.roundedRect(px, py, (W-margin*2)/2 - 2, 10, 2, 2, "F");
+            doc.setTextColor(167,139,250); doc.setFontSize(6.5); doc.setFont("helvetica","normal");
+            doc.text(a.endpoint, px+2, py+4);
+            const rgb2 = statusRGB[a.status] || [167,139,250];
+            doc.setTextColor(...rgb2); doc.setFontSize(8); doc.setFont("helvetica","bold");
+            doc.text(`${a.value} ${a.unit}`, px+2, py+8.5);
+          });
+          y += Math.ceil(items.length/2)*12 + 4;
+        });
+      }
+
+      // Section: Toxicity
+      if (y < 250 && result.toxicity.length > 0) {
+        doc.setFillColor(30,12,70);
+        doc.rect(margin, y, W-margin*2, 7, "F");
+        doc.setTextColor(196,181,253); doc.setFontSize(9); doc.setFont("helvetica","bold");
+        doc.text("TOXICITY ESTIMATES", margin+3, y+5); y += 11;
+        result.toxicity.forEach((t, i) => {
+          const col = i%2; const px = margin + col*((W-margin*2)/2);
+          const py = y + Math.floor(i/2)*14;
+          doc.setFillColor(20,8,50);
+          doc.roundedRect(px,py,(W-margin*2)/2-2,12,2,2,"F");
+          doc.setTextColor(167,139,250); doc.setFontSize(7); doc.setFont("helvetica","normal");
+          doc.text(t.endpoint.toUpperCase(), px+2, py+5);
+          const pct = Math.round(t.probability*100);
+          const rgb3 = statusRGB[t.status]||[167,139,250];
+          doc.setTextColor(...rgb3); doc.setFontSize(9); doc.setFont("helvetica","bold");
+          doc.text(`${pct}%`, px+2, py+10);
+          // Bar
+          doc.setFillColor(30,12,60); doc.rect(px+20, py+7.5, 50, 2.5, "F");
+          doc.setFillColor(...rgb3); doc.rect(px+20, py+7.5, 50*(pct/100), 2.5, "F");
+        });
+      }
+
+      // Footer
+      doc.setFillColor(20, 8, 50);
+      doc.rect(0, 285, W, 12, "F");
+      doc.setTextColor(100, 60, 200); doc.setFontSize(7); doc.setFont("helvetica","normal");
+      doc.text("Generated by MolPredict · Computational predictions only · Not for clinical use · Properties computed with RDKit", W/2, 292, { align: "center" });
+
+      doc.save(`${result.name || "molecule"}_molpredict_report.pdf`);
+    } catch(e) { console.error("PDF error:", e); alert("PDF export failed: " + e.message); }
+    finally { setPdfExporting(false); }
+  };
 
   return (
     <div style={{ minHeight: "100vh", color: T.text, fontFamily: "'Lato', sans-serif", padding: "0 0 80px", position: "relative", overflow: "hidden" }}>
@@ -787,6 +949,29 @@ export default function App() {
         {/* Single mode */}
         {mainTab === "single" && (
           <>
+            {/* Name → SMILES lookup bar */}
+            <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 24px", marginBottom: 14, boxShadow: T.shadow, backdropFilter: "blur(12px)", animation: "fadeUp 0.5s ease both" }}>
+              <div style={{ fontSize: 11, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Arial, sans-serif", fontWeight: 700, marginBottom: 10 }}>
+                🔍 Name → SMILES Lookup
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <input value={nameQuery} onChange={e => setNameQuery(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && lookupName()}
+                  placeholder="Type a drug name e.g. Aspirin, Metformin, Sildenafil..."
+                  style={{ ...inputStyle, flex: 1, minWidth: 200, fontFamily: "Arial, sans-serif" }}
+                  onFocus={e => { e.target.style.borderColor = T.borderFocus; e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.2)"; }}
+                  onBlur={e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = "none"; }} />
+                <button onClick={lookupName} disabled={nameLoading || !nameQuery.trim()}
+                  style={{ background: nameQuery.trim() ? T.grad : "rgba(60,20,100,0.4)", border: "none", borderRadius: T.radiusSm, padding: "11px 22px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 13, fontWeight: 700, cursor: nameQuery.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap", boxShadow: nameQuery.trim() ? "0 4px 12px rgba(124,58,237,0.3)" : "none" }}>
+                  {nameLoading ? "Looking up..." : "Look up"}
+                </button>
+              </div>
+              {nameError && <div style={{ marginTop: 8, fontSize: 12, color: "#fb7185", fontFamily: "Arial, sans-serif" }}>⚠ {nameError}</div>}
+              <div style={{ marginTop: 6, fontSize: 11, color: "rgba(167,139,250,0.6)", fontFamily: "Arial, sans-serif" }}>
+                Searches PubChem by name, synonym, or brand name → fills SMILES automatically
+              </div>
+            </div>
+
             <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 30, marginBottom: 24, boxShadow: T.shadow, backdropFilter: "blur(12px)", animation: "fadeUp 0.5s ease 0.1s both" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, marginBottom: 18 }}>
                 <div>
@@ -834,12 +1019,18 @@ export default function App() {
                     </div>
                     {result.molecular_formula && <div><FormulaDisplay formula={result.molecular_formula} mw={result.molecular_weight} /></div>}
                   </div>
-                  <LipinskiBadge lipinski={result.lipinski} />
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <LipinskiBadge lipinski={result.lipinski} />
+                    <button onClick={exportPDF} disabled={pdfExporting}
+                      style={{ background: "linear-gradient(135deg, #7c2d12, #b45309)", border: "none", borderRadius: 99, padding: "8px 18px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, boxShadow: "0 4px 12px rgba(180,83,9,0.3)" }}>
+                      {pdfExporting ? "⏳ Exporting..." : "📄 Export PDF"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Result tabs */}
                 <div style={{ display:"flex", gap:6, marginBottom:20, background:"rgba(255,255,255,0.7)", borderRadius:T.radius, padding:5, width:"fit-content", border:`1px solid ${T.border}`, backdropFilter:"blur(8px)" }}>
-                  {[["properties","⚗ Properties"],["toxicity","⚠ Toxicity"],["structure","🔬 Structure"]].map(([key,label]) => (
+                  {[["properties","⚗ Properties"],["toxicity","⚠ Toxicity"],["admet","📊 ADMET"],["similarity","🔗 Similarity"],["structure","🔬 Structure"]].map(([key,label]) => (
                     <TabBtn key={key} active={resultTab===key} onClick={() => setResultTab(key)}>{label}</TabBtn>
                   ))}
                 </div>
@@ -871,7 +1062,119 @@ export default function App() {
                   </>
                 )}
 
-                {resultTab==="structure" && (
+                {resultTab==="admet" && (
+                  <div style={{ animation: "fadeUp 0.3s ease" }}>
+                    <div style={{ background: "rgba(20,8,50,0.6)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: T.radiusSm, padding: "12px 18px", marginBottom: 20, fontSize: 12, color: "#c4b5fd", fontFamily: "Arial, sans-serif" }}>
+                      📊 Computational ADMET predictions based on physicochemical descriptors. Validate experimentally before use.
+                    </div>
+                    {["Absorption","Distribution","Metabolism","Excretion","Toxicity"].map(cat => {
+                      const items = result.admet.filter(a => a.category === cat);
+                      if (!items.length) return null;
+                      const catColors = { Absorption:"#60a5fa", Distribution:"#a78bfa", Metabolism:"#34d399", Excretion:"#fbbf24", Toxicity:"#fb7185" };
+                      return (
+                        <div key={cat} style={{ marginBottom: 20 }}>
+                          <div style={{ fontSize: 11, color: catColors[cat], textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: "Arial, sans-serif", fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 3, height: 14, background: catColors[cat], borderRadius: 2 }} />
+                            {cat}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+                            {items.map(a => {
+                              const c = statusColor[a.status] || statusColor.neutral;
+                              return (
+                                <div key={a.endpoint} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: "14px 16px", transition: "all 0.2s" }}
+                                  onMouseEnter={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow=T.shadowHover; }}
+                                  onMouseLeave={e => { e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="none"; }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                    <span style={{ fontSize: 10, color: c.text, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Arial, sans-serif", fontWeight: 700 }}>{a.endpoint}</span>
+                                    <span style={{ background: c.dot, borderRadius: "50%", width: 7, height: 7, display: "inline-block", boxShadow: `0 0 5px ${c.dot}` }} />
+                                  </div>
+                                  <div style={{ fontSize: 22, fontWeight: 700, color: c.text, fontFamily: "Arial, sans-serif", marginBottom: 4 }}>
+                                    {a.value} <span style={{ fontSize: 11, fontWeight: 400, color: "#a78bfa" }}>{a.unit}</span>
+                                  </div>
+                                  <div style={{ fontSize: 10.5, color: "#a78bfa", lineHeight: 1.6, fontFamily: "Arial, sans-serif" }}>{a.description}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {resultTab==="similarity" && (
+                  <div style={{ animation: "fadeUp 0.3s ease" }}>
+                    <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "18px 22px", marginBottom: 20, boxShadow: T.shadow }}>
+                      <div style={{ fontSize: 13, color: "#e2d9f3", fontFamily: "Arial, sans-serif", fontWeight: 700, marginBottom: 14 }}>
+                        Find similar compounds in PubChem
+                      </div>
+                      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <label style={{ fontSize: 11, color: "#c4b5fd", fontFamily: "Arial, sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                            Tanimoto Threshold
+                          </label>
+                          <input type="range" min="0.5" max="0.95" step="0.05" value={simThreshold}
+                            onChange={e => setSimThreshold(parseFloat(e.target.value))}
+                            style={{ width: 120, accentColor: "#7c3aed" }} />
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa", fontFamily: "Arial, sans-serif", minWidth: 36 }}>{simThreshold}</span>
+                        </div>
+                        <button onClick={runSimilarity} disabled={simLoading}
+                          style={{ background: T.grad, border: "none", borderRadius: T.radiusSm, padding: "10px 24px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(124,58,237,0.3)", display: "flex", alignItems: "center", gap: 8 }}>
+                          {simLoading && <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span>}
+                          {simLoading ? "Searching PubChem..." : "Search Similarity"}
+                        </button>
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 11, color: "rgba(167,139,250,0.6)", fontFamily: "Arial, sans-serif" }}>
+                        Uses 2D fingerprint (Tanimoto) similarity against PubChem's database of 100M+ compounds
+                      </div>
+                    </div>
+                    {simError && <div style={{ background: "rgba(136,19,55,0.3)", border: "1px solid rgba(251,113,133,0.3)", borderRadius: T.radiusSm, padding: "12px 16px", marginBottom: 16, color: "#fb7185", fontFamily: "Arial, sans-serif", fontSize: 13 }}>⚠ {simError}</div>}
+                    {simResults.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, color: "#a78bfa", fontFamily: "Arial, sans-serif", marginBottom: 14 }}>
+                          Found <strong style={{ color: "#c4b5fd" }}>{simResults.length}</strong> similar compounds (Tanimoto ≥ {simThreshold})
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+                          {simResults.map((r, i) => (
+                            <div key={i} style={{ background: "rgba(20,8,50,0.8)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: T.radius, overflow: "hidden", transition: "all 0.2s" }}
+                              onMouseEnter={e => { e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow=T.shadowHover; e.currentTarget.style.borderColor="rgba(167,139,250,0.5)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="none"; e.currentTarget.style.borderColor="rgba(167,139,250,0.2)"; }}>
+                              <div style={{ background: "rgba(30,10,70,0.8)", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: "#e2d9f3", fontFamily: "Arial, sans-serif" }}>{r.name}</span>
+                                <a href={r.pubchem_url} target="_blank" rel="noopener noreferrer"
+                                  style={{ fontSize: 10, color: "#7c3aed", background: "rgba(124,58,237,0.2)", padding: "3px 8px", borderRadius: 99, textDecoration: "none", fontFamily: "Arial, sans-serif" }}>
+                                  PubChem ↗
+                                </a>
+                              </div>
+                              <img src={r.structure_url} alt={r.name} style={{ width: "100%", height: 140, objectFit: "contain", background: "#fff", padding: 6 }} />
+                              <div style={{ padding: "12px 14px" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                                  {[["Formula", r.formula], ["MW", r.mw ? r.mw+" Da" : "—"], ["XLogP", r.xlogp ?? "—"], ["TPSA", r.tpsa ? r.tpsa+" Å²" : "—"]].map(([k,v]) => (
+                                    <div key={k}>
+                                      <div style={{ fontSize: 9, color: "#7c5cbf", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Arial, sans-serif" }}>{k}</div>
+                                      <div style={{ fontSize: 12, color: "#e2d9f3", fontWeight: 600, fontFamily: "Arial, sans-serif" }}>{v || "—"}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <button onClick={() => { setSmiles(r.smiles); setMolName(r.name); setMainTab("single"); setResultTab("properties"); window.scrollTo(0,0); }}
+                                  style={{ width: "100%", background: "rgba(124,58,237,0.25)", border: "1px solid rgba(124,58,237,0.5)", borderRadius: T.radiusSm, padding: "8px", color: "#c4b5fd", fontSize: 12, cursor: "pointer", fontFamily: "Arial, sans-serif", fontWeight: 600 }}>
+                                  Analyze this molecule →
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {!simLoading && simResults.length === 0 && !simError && (
+                      <div style={{ textAlign: "center", padding: "50px 0", color: "#4a2f8f", fontFamily: "Arial, sans-serif", fontSize: 14 }}>
+                        Click "Search Similarity" to find structurally related compounds
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                                {resultTab==="structure" && (
                   <div style={{ display:"flex", justifyContent:"center" }}>
                     <div style={{ background:"rgba(10,4,30,0.85)", border:"1px solid rgba(167,139,250,0.3)", borderRadius:T.radius, padding:24, width:"100%", maxWidth:680, boxShadow:T.shadow, backdropFilter:"blur(12px)" }}>
                       <div style={{ fontSize:11, color:"#c4b5fd", textTransform:"uppercase", letterSpacing:"0.1em", fontFamily:"Arial, sans-serif", fontWeight:700, marginBottom:12, textAlign:"center" }}>Interactive 3D Structure</div>
