@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union, List
 import io, httpx
 
 # RDKit imports at top level
@@ -14,7 +14,7 @@ except ImportError:
     RDKIT_OK = False
     print("WARNING: RDKit not available")
 
-app = FastAPI(title="MolPredict API", version="2.0.1")
+app = FastAPI(title="MolPredict API", version="2.0.2")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -37,7 +37,7 @@ class MoleculeRequest(BaseModel):
     name: Optional[str] = None
 
 class BatchRequest(BaseModel):
-    molecules: list[MoleculeRequest]
+    molecules: List[MoleculeRequest]
 
 class NameLookupRequest(BaseModel):
     query: str
@@ -49,7 +49,7 @@ class SimilarityRequest(BaseModel):
 
 class PropertyResult(BaseModel):
     name: str
-    value: float | str
+    value: Union[float, str]
     unit: str
     status: str
     description: str
@@ -63,7 +63,7 @@ class ToxicityResult(BaseModel):
 class ADMETResult(BaseModel):
     category: str
     endpoint: str
-    value: float | str
+    value: Union[float, str]
     unit: str
     status: str
     description: str
