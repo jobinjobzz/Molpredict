@@ -744,15 +744,36 @@ export default function App() {
   const selectExample = (mol) => { setSmiles(mol.smiles); setMolName(mol.name); setResult(null); setError(null); };
 
   const lookupName = async () => {
-    if (!nameQuery.trim()) return;
+    const q = nameQuery.trim();
+    if (!q) return;
     setNameLoading(true); setNameError(null);
     try {
-      const res = await fetch(`${API}/lookup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: nameQuery.trim() }) });
-      const data = await res.json();
-      if (data.found) { setSmiles(data.smiles); setMolName(nameQuery.trim()); setNameQuery(""); setNameError(null); }
-      else setNameError(`"${nameQuery}" not found in PubChem. Try a different name or spelling.`);
-    } catch(e) { setNameError("Lookup failed. Check your connection."); }
-    finally { setNameLoading(false); }
+      // Call PubChem directly from frontend - no backend needed, avoids CORS issues
+      const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(q)}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const props = data?.PropertyTable?.Properties?.[0];
+        if (props?.IsomericSMILES) {
+          setSmiles(props.IsomericSMILES);
+          setMolName(q);
+          setNameQuery("");
+          setNameError(null);
+          return;
+        }
+      }
+      // Fallback: try backend
+      try {
+        const r2 = await fetch(`${API}/lookup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
+        const d2 = await r2.json();
+        if (d2.found) { setSmiles(d2.smiles); setMolName(q); setNameQuery(""); setNameError(null); return; }
+      } catch(_) {}
+      setNameError(`"${q}" not found in PubChem. Try the generic or IUPAC name.`);
+    } catch(e) {
+      setNameError("Lookup failed — check your internet connection.");
+    } finally {
+      setNameLoading(false);
+    }
   };
 
   const runSimilarity = async () => {
@@ -988,7 +1009,7 @@ export default function App() {
             if (col === 0 && i > 0) { y += aCardH + 3; }
             checkPage(aCardH + 3);
             // Clean unit (remove special chars jsPDF can't render)
-            const safeUnit = a.unit.replace(/[^ -]/g, (c) => {
+            const safeUnit = a.unit.replace(/[^-]/g, (c) => {
               const map = {"×":"x","⁻":"","²":"2","¶":"u","Å":"A"};
               return map[c] || "";
             });
@@ -1086,7 +1107,7 @@ export default function App() {
                   style={{ ...inputStyle, flex: 1, minWidth: 200, fontFamily: "Arial, sans-serif" }}
                   onFocus={e => { e.target.style.borderColor = T.borderFocus; e.target.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.2)"; }}
                   onBlur={e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = "none"; }} />
-                <button onClick={lookupName} disabled={nameLoading || !nameQuery.trim()}
+                <button onClick={lookupName} disabled={nameLoading}
                   style={{ background: nameQuery.trim() ? T.grad : "rgba(60,20,100,0.4)", border: "none", borderRadius: T.radiusSm, padding: "11px 22px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 13, fontWeight: 700, cursor: nameQuery.trim() ? "pointer" : "not-allowed", whiteSpace: "nowrap", boxShadow: nameQuery.trim() ? "0 4px 12px rgba(124,58,237,0.3)" : "none" }}>
                   {nameLoading ? "Looking up..." : "Look up"}
                 </button>
