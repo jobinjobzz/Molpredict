@@ -773,118 +773,243 @@ export default function App() {
     try {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const W = 210; const margin = 18;
+      const W = 210; const PH = 297; const M = 16; const CW = W - M * 2;
 
-      // Background
-      doc.setFillColor(13, 4, 30);
-      doc.rect(0, 0, W, 297, "F");
+      // ── Helpers ──────────────────────────────────────────────────────────────
+      let y = 0;
+      const newPage = () => {
+        doc.addPage();
+        y = 20;
+        // Page header strip
+        doc.setFillColor(124, 58, 237);
+        doc.rect(0, 0, W, 8, "F");
+        doc.setFontSize(7); doc.setFont("helvetica", "normal");
+        doc.setTextColor(255,255,255);
+        doc.text(`MolPredict Report — ${result.name || "Molecule"}`, M, 5.5);
+        doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber}`, W-M, 5.5, { align:"right" });
+      };
+      const checkPage = (needed) => { if (y + needed > PH - 16) newPage(); };
 
-      // Header bar
-      doc.setFillColor(50, 15, 110);
-      doc.rect(0, 0, W, 28, "F");
+      const sectionHeader = (title, color = [124, 58, 237]) => {
+        checkPage(14);
+        doc.setFillColor(...color);
+        doc.rect(M, y, CW, 8, "F");
+        doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text(title, M + 4, y + 5.5);
+        y += 12;
+      };
+
+      const statusColors = {
+        good:    { fill:[232,255,240], border:[74,222,128],  text:[21,128,61]  },
+        warning: { fill:[255,251,235], border:[251,191,36],  text:[146,64,14]  },
+        bad:     { fill:[255,241,242], border:[251,113,133], text:[190,18,60]  },
+        neutral: { fill:[245,243,255], border:[167,139,250], text:[109,40,217] },
+      };
+
+      const drawCard = (px, py, cw, ch, label, value, unit, status, description) => {
+        const sc = statusColors[status] || statusColors.neutral;
+        doc.setFillColor(...sc.fill);
+        doc.setDrawColor(...sc.border);
+        doc.setLineWidth(0.4);
+        doc.roundedRect(px, py, cw, ch, 2, 2, "FD");
+        // Status dot
+        doc.setFillColor(...sc.border);
+        doc.circle(px + cw - 4, py + 4, 1.5, "F");
+        // Label
+        doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+        doc.setTextColor(107, 114, 128);
+        doc.text(label.toUpperCase(), px + 3, py + 5.5);
+        // Value
+        doc.setFontSize(13); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...sc.text);
+        doc.text(`${value}${unit ? " " + unit : ""}`, px + 3, py + 13);
+        // Description
+        if (description && ch > 20) {
+          doc.setFontSize(6); doc.setFont("helvetica", "normal");
+          doc.setTextColor(107, 114, 128);
+          doc.text(description, px + 3, py + 18, { maxWidth: cw - 6 });
+        }
+      };
+
+      // ── PAGE 1 ───────────────────────────────────────────────────────────────
+
+      // Purple header
+      doc.setFillColor(124, 58, 237);
+      doc.rect(0, 0, W, 32, "F");
+      doc.setFillColor(109, 40, 217);
+      doc.rect(0, 26, W, 6, "F");
+
+      // Title
+      doc.setFontSize(22); doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18); doc.setFont("helvetica", "bold");
-      doc.text("MolPredict Report", margin, 18);
-      doc.setFontSize(9); doc.setFont("helvetica", "normal");
-      doc.setTextColor(196, 181, 253);
-      doc.text(new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }), W - margin, 18, { align: "right" });
-
-      let y = 38;
-
-      // Molecule name + formula
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16); doc.setFont("helvetica", "bold");
-      doc.text(result.name || "Unnamed Molecule", margin, y); y += 8;
+      doc.text("MolPredict", M, 14);
       doc.setFontSize(10); doc.setFont("helvetica", "normal");
-      doc.setTextColor(167, 139, 250);
-      doc.text(`Formula: ${result.molecular_formula || "—"}   MW: ${result.molecular_weight || "—"} Da   SMILES: ${result.smiles.slice(0,50)}${result.smiles.length>50?"...":""}`, margin, y); y += 10;
+      doc.setTextColor(221, 214, 254);
+      doc.text("Molecule Property Report", M, 21);
+      // Date
+      doc.setFontSize(8);
+      doc.text(new Date().toLocaleDateString("en-GB", { day:"2-digit", month:"long", year:"numeric" }), W-M, 14, { align:"right" });
+
+      y = 40;
+
+      // Molecule identity box
+      doc.setFillColor(250, 248, 255);
+      doc.setDrawColor(167, 139, 250);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(M, y, CW, 30, 3, 3, "FD");
+
+      doc.setFontSize(16); doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 16, 64);
+      doc.text(result.name || "Unnamed Molecule", M+5, y+10);
+
+      doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128);
+      doc.text(`Formula: ${result.molecular_formula || "—"}`, M+5, y+17);
+      doc.text(`Molecular Weight: ${result.molecular_weight || "—"} Da`, M+5, y+22);
+      doc.text(`SMILES: ${result.smiles.length > 60 ? result.smiles.slice(0,60)+"..." : result.smiles}`, M+5, y+27);
 
       // Lipinski badge
       const lip = result.lipinski;
-      doc.setFillColor(lip.pass ? 20 : 100, lip.pass ? 83 : 20, lip.pass ? 45 : 45);
-      doc.roundedRect(margin, y, 80, 10, 3, 3, "F");
-      doc.setTextColor(lip.pass ? 74 : 251, lip.pass ? 222 : 113, lip.pass ? 128 : 133);
+      const lipColor = lip.pass ? [21,128,61] : [190,18,60];
+      const lipFill  = lip.pass ? [232,255,240] : [255,241,242];
+      const lipBorder= lip.pass ? [74,222,128] : [251,113,133];
+      doc.setFillColor(...lipFill); doc.setDrawColor(...lipBorder); doc.setLineWidth(0.4);
+      doc.roundedRect(W-M-75, y+7, 73, 12, 3, 3, "FD");
       doc.setFontSize(9); doc.setFont("helvetica", "bold");
-      doc.text(`${lip.pass ? "✓" : "✗"} Lipinski Ro5: ${lip.pass ? "PASS" : "FAIL"} — ${lip.violations} violation(s)`, margin + 4, y + 6.5);
+      doc.setTextColor(...lipColor);
+      doc.text(`${lip.pass ? "PASS" : "FAIL"} — Lipinski Ro5`, W-M-38, y+14, { align:"center" });
+      doc.setFontSize(7); doc.setFont("helvetica", "normal");
+      doc.text(`${lip.violations} violation(s)`, W-M-38, y+20, { align:"center" });
+
+      y += 36;
+
+      // ── Section 1: Physicochemical Properties ─────────────────────────────
+      sectionHeader("1.  PHYSICOCHEMICAL PROPERTIES", [109, 40, 217]);
+
+      const props = result.properties || [];
+      const cols3 = 3; const cardW = CW / cols3 - 2; const cardH = 23;
+      props.forEach((p, i) => {
+        const col = i % cols3;
+        const px = M + col * (CW / cols3);
+        if (col === 0 && i > 0) { y += cardH + 3; }
+        checkPage(cardH + 3);
+        drawCard(px, y, cardW, cardH, p.name, p.value, p.unit, p.status, p.description);
+      });
+      y += cardH + 8;
+
+      // Lipinski detail row
+      checkPage(14);
+      doc.setFillColor(245, 243, 255); doc.setDrawColor(167, 139, 250); doc.setLineWidth(0.3);
+      doc.roundedRect(M, y, CW, 10, 2, 2, "FD");
+      const lipItems = [
+        ["MW <= 500", lip.mw_ok], ["LogP <= 5", lip.logp_ok],
+        ["HBD <= 5", lip.hbd_ok], ["HBA <= 10", lip.hba_ok]
+      ];
+      lipItems.forEach(([label, ok], i) => {
+        const px = M + 5 + i * (CW/4);
+        doc.setFontSize(8); doc.setFont("helvetica", "bold");
+        doc.setTextColor(ok ? 21 : 190, ok ? 128 : 18, ok ? 61 : 60);
+        doc.text(`${ok ? "+" : "x"}  ${label}`, px, y + 6.5);
+      });
       y += 16;
 
-      // Section: Physicochemical Properties
-      doc.setFillColor(30, 12, 70);
-      doc.rect(margin, y, W - margin*2, 7, "F");
-      doc.setTextColor(196, 181, 253); doc.setFontSize(9); doc.setFont("helvetica", "bold");
-      doc.text("PHYSICOCHEMICAL PROPERTIES", margin + 3, y + 5); y += 11;
+      // ── Section 2: Toxicity ───────────────────────────────────────────────
+      const toxicity = result.toxicity || [];
+      if (toxicity.length > 0) {
+        checkPage(20);
+        sectionHeader("2.  TOXICITY ESTIMATES", [190, 18, 60]);
 
-      const statusRGB = { good: [74,222,128], warning: [251,191,36], bad: [251,113,133] };
-      const cols = 3; const colW = (W - margin*2) / cols;
-      result.properties.forEach((p, i) => {
-        const col = i % cols; const row = Math.floor(i / cols);
-        const px = margin + col * colW; const py = y + row * 18;
-        doc.setFillColor(20, 8, 50);
-        doc.roundedRect(px, py, colW - 2, 16, 2, 2, "F");
-        doc.setTextColor(167,139,250); doc.setFontSize(7); doc.setFont("helvetica","normal");
-        doc.text(p.name.toUpperCase(), px+3, py+5);
-        const rgb = statusRGB[p.status] || [167,139,250];
-        doc.setTextColor(...rgb); doc.setFontSize(11); doc.setFont("helvetica","bold");
-        doc.text(`${p.value}${p.unit ? " "+p.unit : ""}`, px+3, py+12);
-      });
-      y += Math.ceil(result.properties.length / cols) * 18 + 6;
+        const tCols = 2; const tCardW = CW / tCols - 2; const tCardH = 20;
+        toxicity.forEach((t, i) => {
+          const col = i % tCols;
+          const px = M + col * (CW / tCols);
+          if (col === 0 && i > 0) { y += tCardH + 3; }
+          checkPage(tCardH + 3);
+          const sc = statusColors[t.status] || statusColors.neutral;
+          const pct = Math.round(t.probability * 100);
 
-      // Section: ADMET
-      if (result.admet && result.admet.length > 0) {
-        doc.setFillColor(30, 12, 70);
-        doc.rect(margin, y, W - margin*2, 7, "F");
-        doc.setTextColor(196,181,253); doc.setFontSize(9); doc.setFont("helvetica","bold");
-        doc.text("ADMET PROFILE", margin+3, y+5); y += 11;
-        const categories = [...new Set((result.admet || []).map(a => a.category))];
+          doc.setFillColor(...sc.fill); doc.setDrawColor(...sc.border);
+          doc.setLineWidth(0.4);
+          doc.roundedRect(px, y, tCardW, tCardH, 2, 2, "FD");
+
+          doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+          doc.setTextColor(107, 114, 128);
+          doc.text(t.endpoint.toUpperCase(), px+3, y+5);
+
+          doc.setFontSize(12); doc.setFont("helvetica", "bold");
+          doc.setTextColor(...sc.text);
+          doc.text(`${pct}%`, px+3, y+13);
+
+          // Progress bar
+          doc.setFillColor(220, 215, 240);
+          doc.roundedRect(px+22, y+9, tCardW-26, 3, 1, 1, "F");
+          doc.setFillColor(...sc.border);
+          doc.roundedRect(px+22, y+9, (tCardW-26)*(pct/100), 3, 1, 1, "F");
+
+          doc.setFontSize(6); doc.setFont("helvetica", "normal");
+          doc.setTextColor(107, 114, 128);
+          doc.text(t.description, px+3, y+18, { maxWidth: tCardW-6 });
+        });
+        y += tCardH + 8;
+      }
+
+      // ── Section 3: ADMET Profile (new page) ───────────────────────────────
+      const admet = result.admet || [];
+      if (admet.length > 0) {
+        newPage();
+        sectionHeader("3.  ADMET PROFILE", [5, 95, 70]);
+
+        const catColors = {
+          Absorption:   [37, 99, 235],
+          Distribution: [109, 40, 217],
+          Metabolism:   [5, 120, 85],
+          Excretion:    [180, 100, 14],
+          Toxicity:     [190, 18, 60],
+        };
+
+        const categories = [...new Set(admet.map(a => a.category))];
         categories.forEach(cat => {
-          doc.setTextColor(167,139,250); doc.setFontSize(8); doc.setFont("helvetica","bold");
-          doc.text(cat.toUpperCase(), margin, y); y += 5;
-          const items = (result.admet || []).filter(a => a.category === cat);
+          checkPage(20);
+          const cc = catColors[cat] || [100,100,100];
+          // Category label
+          doc.setFillColor(...cc);
+          doc.rect(M, y, 3, 7, "F");
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.setTextColor(...cc);
+          doc.text(cat.toUpperCase(), M+6, y+5.5);
+          y += 10;
+
+          const items = admet.filter(a => a.category === cat);
+          const aCols = 2; const aCardW = CW/aCols - 2; const aCardH = 22;
           items.forEach((a, i) => {
-            const col = i % 2; const row = Math.floor(i / 2);
-            if (i % 2 === 0 && i > 0) y += 0;
-            const px = margin + col * ((W-margin*2)/2);
-            const py = y + Math.floor(i/2) * 12;
-            doc.setFillColor(20,8,50);
-            doc.roundedRect(px, py, (W-margin*2)/2 - 2, 10, 2, 2, "F");
-            doc.setTextColor(167,139,250); doc.setFontSize(6.5); doc.setFont("helvetica","normal");
-            doc.text(a.endpoint, px+2, py+4);
-            const rgb2 = statusRGB[a.status] || [167,139,250];
-            doc.setTextColor(...rgb2); doc.setFontSize(8); doc.setFont("helvetica","bold");
-            doc.text(`${a.value} ${a.unit}`, px+2, py+8.5);
+            const col = i % aCols;
+            const px = M + col * (CW/aCols);
+            if (col === 0 && i > 0) { y += aCardH + 3; }
+            checkPage(aCardH + 3);
+            // Clean unit (remove special chars jsPDF can't render)
+            const safeUnit = a.unit.replace(/[^ -]/g, (c) => {
+              const map = {"×":"x","⁻":"","²":"2","¶":"u","Å":"A"};
+              return map[c] || "";
+            });
+            drawCard(px, y, aCardW, aCardH, a.endpoint, a.value, safeUnit, a.status, a.description);
           });
-          y += Math.ceil(items.length/2)*12 + 4;
+          y += aCardH + 8;
         });
       }
 
-      // Section: Toxicity
-      if (y < 250 && result.toxicity.length > 0) {
-        doc.setFillColor(30,12,70);
-        doc.rect(margin, y, W-margin*2, 7, "F");
-        doc.setTextColor(196,181,253); doc.setFontSize(9); doc.setFont("helvetica","bold");
-        doc.text("TOXICITY ESTIMATES", margin+3, y+5); y += 11;
-        result.toxicity.forEach((t, i) => {
-          const col = i%2; const px = margin + col*((W-margin*2)/2);
-          const py = y + Math.floor(i/2)*14;
-          doc.setFillColor(20,8,50);
-          doc.roundedRect(px,py,(W-margin*2)/2-2,12,2,2,"F");
-          doc.setTextColor(167,139,250); doc.setFontSize(7); doc.setFont("helvetica","normal");
-          doc.text(t.endpoint.toUpperCase(), px+2, py+5);
-          const pct = Math.round(t.probability*100);
-          const rgb3 = statusRGB[t.status]||[167,139,250];
-          doc.setTextColor(...rgb3); doc.setFontSize(9); doc.setFont("helvetica","bold");
-          doc.text(`${pct}%`, px+2, py+10);
-          // Bar
-          doc.setFillColor(30,12,60); doc.rect(px+20, py+7.5, 50, 2.5, "F");
-          doc.setFillColor(...rgb3); doc.rect(px+20, py+7.5, 50*(pct/100), 2.5, "F");
-        });
+      // ── Footer on every page ──────────────────────────────────────────────
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFillColor(245, 243, 255);
+        doc.rect(0, PH-10, W, 10, "F");
+        doc.setFontSize(6.5); doc.setFont("helvetica","normal");
+        doc.setTextColor(107, 114, 128);
+        doc.text("Generated by MolPredict  |  Computational predictions only  |  Not for clinical use  |  Properties computed with RDKit", W/2, PH-4, { align:"center" });
+        doc.setTextColor(124, 58, 237);
+        doc.text(`Page ${p} of ${totalPages}`, W-M, PH-4, { align:"right" });
       }
-
-      // Footer
-      doc.setFillColor(20, 8, 50);
-      doc.rect(0, 285, W, 12, "F");
-      doc.setTextColor(100, 60, 200); doc.setFontSize(7); doc.setFont("helvetica","normal");
-      doc.text("Generated by MolPredict · Computational predictions only · Not for clinical use · Properties computed with RDKit", W/2, 292, { align: "center" });
 
       doc.save(`${result.name || "molecule"}_molpredict_report.pdf`);
     } catch(e) { console.error("PDF error:", e); alert("PDF export failed: " + e.message); }
