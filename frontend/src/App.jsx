@@ -711,9 +711,11 @@ export default function App() {
   const [nameQuery, setNameQuery] = useState("");
   const [nameLoading, setNameLoading] = useState(false);
   const [nameError, setNameError] = useState(null);
+  const [nameSource, setNameSource] = useState(null);
   const [simResults, setSimResults] = useState([]);
   const [simLoading, setSimLoading] = useState(false);
   const [simError, setSimError] = useState(null);
+  const [simSources, setSimSources] = useState([]);
   const [simThreshold, setSimThreshold] = useState(0.7);
   const [pdfExporting, setPdfExporting] = useState(false);
 
@@ -756,7 +758,7 @@ export default function App() {
         const text = await res.text();
         const data = JSON.parse(text);
         const props = data?.PropertyTable?.Properties?.[0];
-        if (props?.IsomericSMILES) smileResult = props.IsomericSMILES;
+        if (props?.IsomericSMILES) smileResult = { smiles: props.IsomericSMILES, source: "PubChem" };
       } catch(e1) { /* PubChem direct failed, try backend */ }
 
       // Step 2: If direct failed, try backend
@@ -768,17 +770,18 @@ export default function App() {
             body: JSON.stringify({ query: q })
           });
           const d2 = await r2.json();
-          if (d2.found && d2.smiles) smileResult = d2.smiles;
+          if (d2.found && d2.smiles) smileResult = { smiles: d2.smiles, source: d2.source || "Database" };
         } catch(e2) { /* backend also failed */ }
       }
 
       if (smileResult) {
-        setSmiles(smileResult);
+        setSmiles(smileResult.smiles || smileResult);
         setMolName(q);
         setNameQuery("");
         setNameError(null);
+        if (smileResult.source) setNameSource(smileResult.source);
       } else {
-        setNameError(`"${q}" not found. Try the full generic name (e.g. "ibuprofen" not "advil").`);
+        setNameError(`"${q}" not found in PubChem, ChEMBL, UniChem or ZINC. Try the generic/IUPAC name.`);
       }
     } catch(e) {
       setNameError("Lookup failed — check your connection and try again.");
@@ -794,7 +797,7 @@ export default function App() {
       const res = await fetch(`${API}/similarity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ smiles: result.smiles, threshold: simThreshold, max_results: 10 }) });
       const data = await res.json();
       if (data.error) setSimError(data.error);
-      else setSimResults(data.results || []);
+      else { setSimResults(data.results || []); setSimSources(data.sources || []); }
     } catch(e) { setSimError("Similarity search failed."); }
     finally { setSimLoading(false); }
   };
@@ -1124,8 +1127,11 @@ export default function App() {
                 </button>
               </div>
               {nameError && <div style={{ marginTop: 8, fontSize: 12, color: "#fb7185", fontFamily: "Arial, sans-serif" }}>⚠ {nameError}</div>}
-              <div style={{ marginTop: 6, fontSize: 11, color: "rgba(167,139,250,0.6)", fontFamily: "Arial, sans-serif" }}>
-                Searches PubChem by name, synonym, or brand name → fills SMILES automatically
+              <div style={{ marginTop: 6, fontSize: 11, color: "rgba(167,139,250,0.6)", fontFamily: "Arial, sans-serif", display:"flex", gap:8, alignItems:"center" }}>
+                Searches PubChem · ChEMBL · UniChem · ZINC in parallel → fills SMILES automatically
+                {nameSource && <span style={{ background:"rgba(124,58,237,0.3)", border:"1px solid rgba(167,139,250,0.4)", borderRadius:99, padding:"1px 10px", fontSize:10, color:"#c4b5fd", fontWeight:700 }}>
+                  Found via {nameSource}
+                </span>}
               </div>
             </div>
 

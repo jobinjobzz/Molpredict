@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union, List
-import io, httpx
+import io, httpx, asyncio
 
 # RDKit imports at top level
 try:
@@ -15,7 +15,7 @@ except ImportError:
     RDKIT_OK = False
     print("WARNING: RDKit not available")
 
-app = FastAPI(title="MolPredict API", version="2.0.4")
+app = FastAPI(title="MolPredict API", version="2.1.0")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -322,11 +322,110 @@ def batch_export(req: BatchRequest):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=molpredict_results.xlsx"})
 
+# ── Shared helpers ─────────────────────────────────────────────────────────────
+async def _pubchem_name_to_smiles(client, query: str):
+    """PubChem: name → SMILES"""
+    from urllib.parse import quote
+    try:
+        url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{quote(query)}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON"
+        r = await client.get(url)
+        if r.status_code == 200:
+            props = r.json()["PropertyTable"]["Properties"][0]
+            smiles = props.get("IsomericSMILES", "")
+            if smiles:
+                return {"found": True, "smiles": smiles, "source": "PubChem",
+                        "iupac_name": props.get("IUPACName",""), "formula": props.get("MolecularFormula",""),
+                        "mw": str(props.get("MolecularWeight","")), "ext_id": str(props.get("CID",""))}
+    except Exception as e:
+        print(f"PubChem lookup error: {e}")
+    return None
+
+async def _chembl_name_to_smiles(client, query: str):
+    """ChEMBL: name/synonym → SMILES"""
+    from urllib.parse import quote
+    try:
+        # Search by preferred name
+        url = f"https://www.ebi.ac.uk/chembl/api/data/molecule.json?pref_name__iexact={quote(query)}&limit=1"
+        r = await client.get(url)
+        if r.status_code == 200:
+            mols = r.json().get("molecules", [])
+            if mols:
+                m = mols[0]
+                smiles = m.get("molecule_structures", {}).get("canonical_smiles", "")
+                if smiles:
+                    return {"found": True, "smiles": smiles, "source": "ChEMBL",
+                            "iupac_name": m.get("pref_name",""), "formula": m.get("molecule_properties",{}).get("full_molecular_formula",""),
+                            "mw": str(m.get("molecule_properties",{}).get("full_mwt","")),
+                            "ext_id": m.get("molecule_chembl_id",""),
+                            "max_phase": m.get("max_phase", 0)}
+        # Fallback: synonym search
+        url2 = f"https://www.ebi.ac.uk/chembl/api/data/molecule.json?molecule_synonyms__synonym__iexact={quote(query)}&limit=1"
+        r2 = await client.get(url2)
+        if r2.status_code == 200:
+            mols2 = r2.json().get("molecules", [])
+            if mols2:
+                m = mols2[0]
+                smiles = m.get("molecule_structures", {}).get("canonical_smiles", "")
+                if smiles:
+                    return {"found": True, "smiles": smiles, "source": "ChEMBL",
+                            "iupac_name": m.get("pref_name",""), "formula": m.get("molecule_properties",{}).get("full_molecular_formula",""),
+                            "mw": str(m.get("molecule_properties",{}).get("full_mwt","")),
+                            "ext_id": m.get("molecule_chembl_id",""),
+                            "max_phase": m.get("max_phase", 0)}
+    except Exception as e:
+        print(f"ChEMBL lookup error: {e}")
+    return None
+
+async def _unichem_name_to_smiles(client, query: str):
+    """UniChem: name → InChIKey → SMILES via cross-reference"""
+    from urllib.parse import quote
+    try:
+        # UniChem compound search
+        url = f"https://www.ebi.ac.uk/unichem/api/v1/compounds?name={quote(query)}"
+        r = await client.get(url)
+        if r.status_code == 200:
+            data = r.json()
+            compounds = data.get("compounds", [])
+            if compounds:
+                inchikey = compounds[0].get("standardInchiKey", "")
+                if inchikey:
+                    # Use InChIKey to get SMILES from PubChem
+                    r2 = await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{inchikey}/property/IsomericSMILES/JSON")
+                    if r2.status_code == 200:
+                        props = r2.json()["PropertyTable"]["Properties"][0]
+                        smiles = props.get("IsomericSMILES","")
+                        if smiles:
+                            return {"found": True, "smiles": smiles, "source": "UniChem",
+                                    "iupac_name": query, "formula": "", "mw": "", "ext_id": inchikey}
+    except Exception as e:
+        print(f"UniChem lookup error: {e}")
+    return None
+
+async def _zinc_name_to_smiles(client, query: str):
+    """ZINC: name search via their API"""
+    from urllib.parse import quote
+    try:
+        url = f"https://zinc.docking.org/substances.json?name={quote(query)}&count=1"
+        r = await client.get(url, headers={"Accept": "application/json"})
+        if r.status_code == 200:
+            items = r.json()
+            if items and len(items) > 0:
+                smiles = items[0].get("smiles","")
+                if smiles:
+                    return {"found": True, "smiles": smiles, "source": "ZINC",
+                            "iupac_name": items[0].get("name", query),
+                            "formula": "", "mw": str(items[0].get("mwt","")),
+                            "ext_id": items[0].get("zinc_id","")}
+    except Exception as e:
+        print(f"ZINC lookup error: {e}")
+    return None
+
+
 @app.post("/lookup")
 async def name_lookup(req: NameLookupRequest):
     query = req.query.strip()
-    
-    # Common drugs hardcoded as instant fallback
+
+    # ── Tier 1: Hardcoded common drugs (instant) ───────────────────────────────
     COMMON = {
         "aspirin": "CC(=O)Oc1ccccc1C(=O)O",
         "ibuprofen": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
@@ -351,57 +450,215 @@ async def name_lookup(req: NameLookupRequest):
         "warfarin": "CC(=O)CC(c1ccccc1)c1c(O)c2ccccc2oc1=O",
         "paclitaxel": "O=C(O[C@@H]1C[C@]2(O)C(=O)[C@@H](OC(=O)c3ccccc3)[C@@]3(C)[C@H](OC(C)=O)[C@@H](O)[C@H](c4ccccc4)[C@@H]3[C@@H]2CC1)c1ccccc1",
         "cisplatin": "[NH3][Pt](Cl)(Cl)[NH3]",
+        "doxorubicin": "COc1cccc2C(=O)c3c(O)c4C[C@@](O)(C[C@H](O[C@H]5C[C@H](N)[C@H](O)[C@H](C)O5)c4c(O)c3C(=O)c12)C(=O)CO",
+        "cyclophosphamide": "ClCCN(CCCl)P1(=O)NCCCO1",
+        "fluoxetine": "CNCCC(Oc1ccc(cc1)C(F)(F)F)c1ccccc1",
+        "diazepam": "ClC1=CC2=C(C=C1)N(C)C(=O)CN=C2c1ccccc1",
+        "alprazolam": "Cc1nnc2CN=C(c3ccccc3)c3cc(Cl)ccc3-n12",
+        "lisinopril": "NCCCC[C@H](N[C@@H](CCc1ccccc1)C(=O)O)C(=O)N1CCC[C@H]1C(=O)O",
+        "amlodipine": "CCOC(=O)C1=C(COCCN)NC(C)=C(C1c1ccccc1Cl)C(=O)OC",
+        "simvastatin": "CCC(C)(C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@H]12",
+        "losartan": "CCCCc1nc(Cl)c(CO)n1Cc1ccc(-c2ccccc2-c2nnn[nH]2)cc1",
+        "metoprolol": "COCCc1ccc(OCC(O)CNC(C)C)cc1",
+        "gabapentin": "NCC1(CC(=O)O)CCCCC1",
+        "pregabalin": "CC(CN)CC(=O)O",
+        "tamoxifen": "CCC(=C(CC)c1ccc(OCCN(C)C)cc1)c1ccccc1",
+        "naloxone": "O=C1CC[C@]2(O)CC[N@@+]3(CC[C@H](O2)[C@H]13)CC=C",
+        "naltrexone": "O=C1CC[C@]2(O)CC[N@@+]3(CC[C@H](O2)[C@H]13)CC1CC1",
+        "fentanyl": "CCC(=O)N(c1ccccc1)C1CCN(CCc2ccccc2)CC1",
+        "codeine": "COc1ccc2CC3N(C)CCC34c2c1OC4",
+        "lidocaine": "CCN(CC)CC(=O)Nc1c(C)cccc1C",
+        "propofol": "CC(C)c1cccc(C(C)C)c1O",
+        "ketamine": "O=C1CCCCC1=NC1CCCCC1",
+        "haloperidol": "OC1(CCc2ccc(Cl)cc2)CCN(CCCC(=O)c2ccc(F)cc2)CC1",
+        "clozapine": "CN1CCN(CC1)c1nc2cc(Cl)ccc2nc2ccccc12",
+        "risperidone": "Cc1nc2ccc(F)cc2c(=O)n1CCCC1CCN2CC(=O)Nc2c1",
+        "quetiapine": "O=C1CCCCN1CCCN1CCN(c2nc3ccccc3sc2)CC1",
+        "fluconazole": "OC(Cn1ccnc1)(Cn1ccnc1)c1ccc(F)cc1F",
+        "itraconazole": "CCC(C)n1ncn(c1=O)c1ccc(cc1)N1CCN(CC1)c1ccc(OCC2COc3ccccc3O2)cc1",
+        "amphotericin": "OC1C=CC=CC=CC=CC=CC=CC(CC(O)CC(O)CC(OC2OC(C(O)C(O)C2O)C(N)=O)CC(O)CC1=O)C(=O)O",
+        "metronidazole": "Cc1ncc([N+](=O)[O-])n1CCO",
+        "chloroquine": "CCN(CC)CCCC(C)Nc1ccnc2cc(Cl)ccc12",
+        "hydroxychloroquine": "CCN(CCO)CCCC(C)Nc1ccnc2cc(Cl)ccc12",
+        "remdesivir": "CCC(CC)COC(=O)[C@@H](N[P@@](=O)(OC[C@H]1O[C@@](C#N)(c2ccc3[nH]cnc3n2)[C@H](O)[C@@H]1F)Oc1ccccc1)C",
+        "oseltamivir": "CCOC(=O)[C@@H]1CC(=C[C@H](N)[C@@H]1OC(=O)CC)N",
+        "azithromycin": "CC[C@@H]1OC(=O)[C@H](C)[C@@H](O[C@H]2C[C@@](C)(OC)[C@@H](O)[C@H](C)O2)[C@H](C)[C@@H](O[C@@H]2O[C@H](CC)[C@@H](O[C@H]3C[C@@H](N(C)C)[C@@H](O)[C@H](C)O3)[C@H](C)O2)[C@@H](C)C[C@@](O)(CC)[C@@H](C)C(=O)[C@H](C)[C@@H]1N(C)C",
     }
-    
+
     q_lower = query.lower()
     if q_lower in COMMON:
-        print(f"Lookup hit: {query} -> hardcoded")
-        return {"found": True, "smiles": COMMON[q_lower], "query": query, "source": "local"}
-    
-    # Try PubChem via backend
-    from urllib.parse import quote
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{quote(query)}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight/JSON"
-            r = await client.get(url)
-            print(f"PubChem lookup status: {r.status_code} for '{query}'")
-            if r.status_code == 200:
-                data = r.json()
-                props = data["PropertyTable"]["Properties"][0]
-                smiles = props.get("IsomericSMILES", "")
-                print(f"PubChem returned SMILES: {smiles[:50] if smiles else 'EMPTY'}")
-                if smiles:
-                    return {"found": True, "smiles": smiles, "iupac_name": props.get("IUPACName",""),
-                            "formula": props.get("MolecularFormula",""), "mw": props.get("MolecularWeight",""),
-                            "cid": props.get("CID",""), "query": query, "source": "pubchem"}
-        except Exception as e:
-            print(f"Lookup error for '{query}': {e}")
-    
-    return {"found": False, "query": query, "smiles": "", "source": "none"}
+        print(f"Lookup hit (local): {query}")
+        return {"found": True, "smiles": COMMON[q_lower], "query": query,
+                "source": "Local DB", "sources_tried": ["Local DB"]}
+
+    # ── Tier 2: Query all databases in parallel ────────────────────────────────
+    sources_tried = []
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        tasks = {
+            "pubchem": _pubchem_name_to_smiles(client, query),
+            "chembl":  _chembl_name_to_smiles(client, query),
+            "unichem": _unichem_name_to_smiles(client, query),
+            "zinc":    _zinc_name_to_smiles(client, query),
+        }
+        results_raw = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        db_results = dict(zip(tasks.keys(), results_raw))
+
+        # Return first successful hit, in priority order
+        for db in ["pubchem", "chembl", "unichem", "zinc"]:
+            sources_tried.append(db.capitalize())
+            res = db_results.get(db)
+            if res and isinstance(res, dict) and res.get("found") and res.get("smiles"):
+                print(f"Lookup hit ({res['source']}): {query}")
+                res["query"] = query
+                res["sources_tried"] = sources_tried
+                return res
+
+    print(f"Lookup miss for '{query}' across all databases")
+    return {"found": False, "query": query, "smiles": "",
+            "sources_tried": sources_tried,
+            "message": f"'{query}' not found in PubChem, ChEMBL, UniChem, or ZINC. Try the full IUPAC or generic name."}
+
 
 @app.post("/similarity")
 async def similarity_search(req: SimilarityRequest):
     from urllib.parse import quote
-    smiles=req.smiles.strip()
-    threshold=int((req.threshold or 0.7)*100)
-    max_res=min(req.max_results or 10,20)
-    async with httpx.AsyncClient(timeout=30) as client:
+    smiles = req.smiles.strip()
+    threshold = int((req.threshold or 0.7) * 100)
+    max_res = min(req.max_results or 10, 20)
+
+    async def pubchem_similarity(client):
+        """PubChem 2D fingerprint similarity — 100M+ compounds"""
         try:
-            r=await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsimilarity_2d/smiles/{quote(smiles)}/cids/JSON?Threshold={threshold}&MaxRecords={max_res}")
-            if r.status_code!=200: return {"results":[],"error":"No similar compounds found."}
-            cids=r.json().get("IdentifierList",{}).get("CID",[])
-            if not cids: return {"results":[],"error":"No similar compounds found."}
-            cid_str=",".join(str(c) for c in cids[:max_res])
-            rp=await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid_str}/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight,XLogP,TPSA/JSON")
-            if rp.status_code!=200: return {"results":[],"error":"Could not fetch properties."}
-            props=rp.json().get("PropertyTable",{}).get("Properties",[])
-            rs=await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid_str}/synonyms/JSON")
-            syn_map={}
-            if rs.status_code==200:
-                for item in rs.json().get("InformationList",{}).get("Information",[]):
-                    cid=item.get("CID"); syns=item.get("Synonym",[])
-                    syn_map[cid]=next((s for s in syns if len(s)<=30 and s[0].isupper()),syns[0] if syns else f"CID {cid}")
-            results=[{"cid":p.get("CID"),"name":syn_map.get(p.get("CID"),f"CID {p.get('CID')}"),"smiles":p.get("IsomericSMILES",""),"formula":p.get("MolecularFormula",""),"mw":p.get("MolecularWeight",""),"xlogp":p.get("XLogP",""),"tpsa":p.get("TPSA",""),"pubchem_url":f"https://pubchem.ncbi.nlm.nih.gov/compound/{p.get('CID')}","structure_url":f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{p.get('CID')}/PNG"} for p in props]
-            return {"results":results,"count":len(results),"query_smiles":smiles}
+            r = await client.get(
+                f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/fastsimilarity_2d/smiles/"
+                f"{quote(smiles)}/cids/JSON?Threshold={threshold}&MaxRecords={max_res}"
+            )
+            if r.status_code != 200: return []
+            cids = r.json().get("IdentifierList", {}).get("CID", [])
+            if not cids: return []
+            cid_str = ",".join(str(c) for c in cids[:max_res])
+            rp = await client.get(
+                f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid_str}"
+                f"/property/IsomericSMILES,IUPACName,MolecularFormula,MolecularWeight,XLogP,TPSA/JSON"
+            )
+            if rp.status_code != 200: return []
+            props = rp.json().get("PropertyTable", {}).get("Properties", [])
+            # Get synonyms
+            rs = await client.get(f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid_str}/synonyms/JSON")
+            syn_map = {}
+            if rs.status_code == 200:
+                for item in rs.json().get("InformationList", {}).get("Information", []):
+                    cid = item.get("CID"); syns = item.get("Synonym", [])
+                    syn_map[cid] = next((s for s in syns if len(s) <= 30 and s[0].isupper()), syns[0] if syns else f"CID {cid}")
+            return [{
+                "name": syn_map.get(p.get("CID"), f"CID {p.get('CID')}"),
+                "smiles": p.get("IsomericSMILES", ""),
+                "formula": p.get("MolecularFormula", ""),
+                "mw": str(p.get("MolecularWeight", "")),
+                "xlogp": str(p.get("XLogP", "")),
+                "tpsa": str(p.get("TPSA", "")),
+                "source": "PubChem",
+                "source_color": "#3b82f6",
+                "ext_id": str(p.get("CID", "")),
+                "pubchem_url": f"https://pubchem.ncbi.nlm.nih.gov/compound/{p.get('CID')}",
+                "structure_url": f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{p.get('CID')}/PNG",
+            } for p in props if p.get("IsomericSMILES")]
         except Exception as e:
-            print(f"Similarity error: {e}"); return {"results":[],"error":str(e)}
+            print(f"PubChem similarity error: {e}"); return []
+
+    async def chembl_similarity(client):
+        """ChEMBL structural similarity search — approved drugs + bioactivity"""
+        try:
+            r = await client.get(
+                f"https://www.ebi.ac.uk/chembl/api/data/similarity/{quote(smiles)}/{threshold}.json?limit={max_res}"
+            )
+            if r.status_code != 200: return []
+            mols = r.json().get("molecules", [])
+            results = []
+            for m in mols:
+                s = m.get("molecule_structures", {}).get("canonical_smiles", "")
+                if not s: continue
+                props = m.get("molecule_properties") or {}
+                chembl_id = m.get("molecule_chembl_id", "")
+                results.append({
+                    "name": m.get("pref_name") or chembl_id,
+                    "smiles": s,
+                    "formula": props.get("full_molecular_formula", ""),
+                    "mw": str(props.get("full_mwt", "")),
+                    "xlogp": str(props.get("alogp", "")),
+                    "tpsa": str(props.get("psa", "")),
+                    "source": "ChEMBL",
+                    "source_color": "#f59e0b",
+                    "ext_id": chembl_id,
+                    "max_phase": m.get("max_phase", 0),
+                    "pubchem_url": f"https://www.ebi.ac.uk/chembl/compound_report_card/{chembl_id}/",
+                    "structure_url": f"https://www.ebi.ac.uk/chembl/api/data/image/{chembl_id}.svg",
+                })
+            return results
+        except Exception as e:
+            print(f"ChEMBL similarity error: {e}"); return []
+
+    async def zinc_similarity(client):
+        """ZINC purchasable compound search by substructure/similarity"""
+        try:
+            r = await client.get(
+                f"https://zinc.docking.org/substances.json?smiles={quote(smiles)}&count={max_res}",
+                headers={"Accept": "application/json"}
+            )
+            if r.status_code != 200: return []
+            items = r.json()
+            results = []
+            for item in (items if isinstance(items, list) else []):
+                s = item.get("smiles", "")
+                if not s: continue
+                zinc_id = item.get("zinc_id", "")
+                results.append({
+                    "name": item.get("name") or zinc_id,
+                    "smiles": s,
+                    "formula": "",
+                    "mw": str(item.get("mwt", "")),
+                    "xlogp": str(item.get("logp", "")),
+                    "tpsa": str(item.get("tpsa", "")),
+                    "source": "ZINC",
+                    "source_color": "#10b981",
+                    "ext_id": zinc_id,
+                    "purchasable": True,
+                    "pubchem_url": f"https://zinc.docking.org/substances/{zinc_id}/",
+                    "structure_url": f"https://zinc.docking.org/substances/{zinc_id}/image.png",
+                })
+            return results
+        except Exception as e:
+            print(f"ZINC similarity error: {e}"); return []
+
+    # Run all three in parallel
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        pubchem_res, chembl_res, zinc_res = await asyncio.gather(
+            pubchem_similarity(client),
+            chembl_similarity(client),
+            zinc_similarity(client),
+            return_exceptions=True
+        )
+
+    # Merge and deduplicate by SMILES
+    all_results = []
+    seen_smiles = set()
+    for source_results in [pubchem_res, chembl_res, zinc_res]:
+        if isinstance(source_results, list):
+            for r in source_results:
+                s = r.get("smiles", "")
+                if s and s not in seen_smiles:
+                    seen_smiles.add(s)
+                    all_results.append(r)
+
+    # Sort: ChEMBL approved drugs first, then by source
+    source_order = {"ChEMBL": 0, "PubChem": 1, "ZINC": 2}
+    all_results.sort(key=lambda x: source_order.get(x.get("source",""), 3))
+
+    sources_used = list({r.get("source") for r in all_results})
+    return {
+        "results": all_results[:max_res],
+        "count": len(all_results[:max_res]),
+        "query_smiles": smiles,
+        "sources": sources_used,
+        "threshold": threshold / 100,
+    }
