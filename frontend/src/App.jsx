@@ -835,11 +835,11 @@ export default function App() {
         doc.rect(margin, y, W - margin*2, 7, "F");
         doc.setTextColor(196,181,253); doc.setFontSize(9); doc.setFont("helvetica","bold");
         doc.text("ADMET PROFILE", margin+3, y+5); y += 11;
-        const categories = [...new Set(result.admet.map(a => a.category))];
+        const categories = [...new Set((result.admet || []).map(a => a.category))];
         categories.forEach(cat => {
           doc.setTextColor(167,139,250); doc.setFontSize(8); doc.setFont("helvetica","bold");
           doc.text(cat.toUpperCase(), margin, y); y += 5;
-          const items = result.admet.filter(a => a.category === cat);
+          const items = (result.admet || []).filter(a => a.category === cat);
           items.forEach((a, i) => {
             const col = i % 2; const row = Math.floor(i / 2);
             if (i % 2 === 0 && i > 0) y += 0;
@@ -1053,11 +1053,17 @@ export default function App() {
 
                 {resultTab==="toxicity" && (
                   <>
-                    <div style={{ background:"rgba(120,80,0,0.3)", border:"1px solid rgba(251,191,36,0.3)", borderRadius:T.radiusSm, padding:"12px 18px", marginBottom:20, color:"#fbbf24", fontSize:12.5, fontFamily:"'Lato', sans-serif" }}>
+                    <div style={{ background:"rgba(120,80,0,0.3)", border:"1px solid rgba(251,191,36,0.3)", borderRadius:T.radiusSm, padding:"12px 18px", marginBottom:20, color:"#fbbf24", fontSize:12.5, fontFamily:"Arial, sans-serif" }}>
                       ⚠ Rule-based computational estimates only. Always validate experimentally.
                     </div>
+                    {(!result.toxicity || result.toxicity.length === 0) && (
+                      <div style={{ textAlign:"center", padding:"40px 0", color:"#4a2f8f", fontFamily:"Arial, sans-serif" }}>
+                        <div style={{ fontSize:32, marginBottom:12 }}>⏳</div>
+                        <div style={{ fontSize:14, color:"#c4b5fd" }}>Toxicity data loading — re-analyze in ~1 minute after backend deploys.</div>
+                      </div>
+                    )}
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:14 }}>
-                      {result.toxicity.map(t => <ToxicityCard key={t.endpoint} tox={t} />)}
+                      {(result.toxicity || []).map(t => <ToxicityCard key={t.endpoint} tox={t} />)}
                     </div>
                   </>
                 )}
@@ -1067,8 +1073,15 @@ export default function App() {
                     <div style={{ background: "rgba(20,8,50,0.6)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: T.radiusSm, padding: "12px 18px", marginBottom: 20, fontSize: 12, color: "#c4b5fd", fontFamily: "Arial, sans-serif" }}>
                       📊 Computational ADMET predictions based on physicochemical descriptors. Validate experimentally before use.
                     </div>
+                    {(!result.admet || result.admet.length === 0) && (
+                      <div style={{ textAlign: "center", padding: "40px 0", color: "#4a2f8f", fontFamily: "Arial, sans-serif" }}>
+                        <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                        <div style={{ fontSize: 14, marginBottom: 6, color: "#c4b5fd" }}>ADMET data not yet available</div>
+                        <div style={{ fontSize: 12, color: "#7c5cbf" }}>The backend is deploying. Re-analyze the molecule in ~1 minute once Render finishes updating.</div>
+                      </div>
+                    )}
                     {["Absorption","Distribution","Metabolism","Excretion","Toxicity"].map(cat => {
-                      const items = result.admet.filter(a => a.category === cat);
+                      const items = (result.admet || []).filter(a => a.category === cat);
                       if (!items.length) return null;
                       const catColors = { Absorption:"#60a5fa", Distribution:"#a78bfa", Metabolism:"#34d399", Excretion:"#fbbf24", Toxicity:"#fb7185" };
                       return (
