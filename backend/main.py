@@ -8,13 +8,14 @@ import io, httpx
 try:
     from rdkit import Chem
     from rdkit.Chem import Descriptors, Crippen, QED
+    from rdkit.Chem import rdMolDescriptors
     from rdkit.Chem import rdMolDescriptors as rdmd
     RDKIT_OK = True
 except ImportError:
     RDKIT_OK = False
     print("WARNING: RDKit not available")
 
-app = FastAPI(title="MolPredict API", version="2.0.2")
+app = FastAPI(title="MolPredict API", version="2.0.3")
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 @app.middleware("http")
@@ -179,7 +180,7 @@ def compute_properties(smiles: str) -> MoleculeResponse:
     if mol is None:
         return MoleculeResponse(smiles=smiles,name=None,valid=False,molecular_formula=None,
             molecular_weight=None,properties=[],lipinski={},toxicity=[],admet=[],structure_url=None,error="Invalid SMILES string.")
-    formula=rdMolDescriptors.CalcMolFormula(mol)
+    formula=rdmd.CalcMolFormula(mol)
     mw=Descriptors.MolWt(mol); hbd=rdmd.CalcNumHBD(mol); hba=rdmd.CalcNumHBA(mol)
     logp=Crippen.MolLogP(mol); tpsa=Descriptors.TPSA(mol)
     rot=rdmd.CalcNumRotatableBonds(mol); arom=rdmd.CalcNumAromaticRings(mol)
