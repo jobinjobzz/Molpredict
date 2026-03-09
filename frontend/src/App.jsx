@@ -523,9 +523,9 @@ function ExamplePill({ mol, onSelect }) {
 function FormulaDisplay({ formula, mw }) {
   const parts = formula.replace(/(\d+)/g, "|||$1|||").split("|||");
   return (
-    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, color: T.text }}>
+    <span style={{ fontFamily: "Arial, sans-serif", fontSize: 20, fontWeight: 700, color: "#ffffff" }}>
       {parts.map((p, i) => /^\d+$/.test(p) ? <sub key={i}>{p}</sub> : <span key={i}>{p}</span>)}
-      {mw && <span style={{ color: T.textMuted, fontSize: 14, marginLeft: 10, fontFamily: "'Lato', sans-serif" }}>{mw} Da</span>}
+      {mw && <span style={{ color: "#a78bfa", fontSize: 14, marginLeft: 10, fontFamily: "Arial, sans-serif" }}>{mw} Da</span>}
     </span>
   );
 }
@@ -772,8 +772,8 @@ export default function App() {
             Molecule Property<br />
             <span style={{ background: T.grad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Predictor</span>
           </h1>
-          <p style={{ color: T.textMuted, fontSize: 16, maxWidth: 480, margin: "0 auto", lineHeight: 1.8, fontFamily: "'Lato', sans-serif", fontWeight: 300 }}>
-            Analyze molecules for drug-likeness, physicochemical properties, toxicity estimates, and 2D structure visualization.
+          <p style={{ color: "#c4b5fd", fontSize: 16, maxWidth: 480, margin: "0 auto", lineHeight: 1.8, fontFamily: "Arial, sans-serif", fontWeight: 400 }}>
+            Analyze molecules for drug-likeness, physicochemical properties, toxicity estimates, and interactive 3D structure visualization.
           </p>
         </div>
 
@@ -828,7 +828,7 @@ export default function App() {
                 {/* Molecule header */}
                 <div style={{ background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:T.radius, padding:24, marginBottom:20, display:"flex", flexWrap:"wrap", gap:16, alignItems:"center", justifyContent:"space-between", boxShadow:T.shadow, backdropFilter:"blur(12px)" }}>
                   <div>
-                    {result.name && <div style={{ fontFamily:"'Playfair Display', serif", fontSize:24, fontWeight:700, marginBottom:6, color:T.text }}>{result.name}</div>}
+                    {result.name && <div style={{ fontFamily:"Arial, sans-serif", fontSize:24, fontWeight:700, marginBottom:6, color:"#ffffff" }}>{result.name}</div>}
                     <div style={{ fontFamily:"'Courier Prime', monospace", fontSize:13, color:T.accent, background:T.accentLight, padding:"4px 12px", borderRadius:6, display:"inline-block", marginBottom:10 }}>
                       {result.smiles.length>60?result.smiles.slice(0,60)+"…":result.smiles}
                     </div>
