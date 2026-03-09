@@ -1,6 +1,138 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 const API = "https://molpredict.onrender.com";
+
+// ── Interactive 3D Molecule Viewer using 3Dmol.js ─────────────────────────────
+function Molecule3DViewer({ smiles, name }) {
+  const viewerRef = React.useRef(null);
+  const [status, setStatus] = React.useState("loading"); // loading | ready | error
+
+  React.useEffect(() => {
+    if (!smiles) return;
+    setStatus("loading");
+
+    // Load 3Dmol.js script if not already loaded
+    const load3Dmol = () => new Promise((resolve, reject) => {
+      if (window.$3Dmol) { resolve(); return; }
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.4/3Dmol-min.js";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+
+    // Fetch SDF from PubChem using SMILES → CID → SDF
+    const fetchSDF = async () => {
+      try {
+        // Step 1: SMILES → CID
+        const cidRes = await fetch(
+          `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/cids/JSON`
+        );
+        if (!cidRes.ok) throw new Error("Not found in PubChem");
+        const cidData = await cidRes.json();
+        const cid = cidData.IdentifierList?.CID?.[0];
+        if (!cid) throw new Error("No CID found");
+
+        // Step 2: CID → 3D SDF
+        const sdfRes = await fetch(
+          `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/SDF?record_type=3d`
+        );
+        if (!sdfRes.ok) throw new Error("No 3D SDF available");
+        return await sdfRes.text();
+      } catch {
+        return null;
+      }
+    };
+
+    const init = async () => {
+      try {
+        await load3Dmol();
+        const sdf = await fetchSDF();
+
+        if (!viewerRef.current) return;
+        viewerRef.current.innerHTML = "";
+
+        const viewer = window.$3Dmol.createViewer(viewerRef.current, {
+          backgroundColor: "rgba(10,4,30,0)",
+          antialias: true,
+        });
+
+        if (sdf) {
+          viewer.addModel(sdf, "sdf");
+        } else {
+          // Fallback: use SMILES via pubchem 2D coords converted
+          setStatus("error"); return;
+        }
+
+        // Stylized rendering
+        viewer.setStyle({}, {
+          stick: { radius: 0.15, colorscheme: "rasmol" },
+          sphere: { scale: 0.3, colorscheme: "rasmol" }
+        });
+
+        // Add surface with transparency
+        viewer.addSurface(window.$3Dmol.SurfaceType.VDW, {
+          opacity: 0.08,
+          color: "lightblue"
+        });
+
+        viewer.zoomTo();
+        viewer.zoom(0.85);
+        viewer.render();
+
+        // Auto-spin
+        viewer.spin("y", 0.5);
+
+        setStatus("ready");
+      } catch (e) {
+        setStatus("error");
+      }
+    };
+
+    init();
+  }, [smiles]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        ref={viewerRef}
+        style={{
+          width: "100%", height: 420, borderRadius: 12,
+          background: "radial-gradient(ellipse at center, rgba(30,10,80,0.9) 0%, rgba(5,2,20,0.95) 100%)",
+          border: "1px solid rgba(167,139,250,0.2)",
+          overflow: "hidden", position: "relative"
+        }}
+      />
+      {status === "loading" && (
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 14,
+          background: "radial-gradient(ellipse at center, rgba(20,8,60,0.95) 0%, rgba(5,2,20,0.98) 100%)",
+          borderRadius: 12,
+        }}>
+          <div style={{ width: 48, height: 48, border: "3px solid rgba(124,58,237,0.3)", borderTop: "3px solid #a855f7", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+          <div style={{ color: "#c4b5fd", fontFamily: "Arial, sans-serif", fontSize: 13 }}>Loading 3D structure from PubChem...</div>
+        </div>
+      )}
+      {status === "error" && (
+        <div style={{
+          position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", gap: 12,
+          background: "radial-gradient(ellipse at center, rgba(20,8,60,0.95) 0%, rgba(5,2,20,0.98) 100%)",
+          borderRadius: 12,
+        }}>
+          <div style={{ fontSize: 36 }}>⚗️</div>
+          <div style={{ color: "#c4b5fd", fontFamily: "Arial, sans-serif", fontSize: 13, textAlign: "center", maxWidth: 280 }}>
+            3D structure not available in PubChem for this molecule.
+            <br/><br/>
+            <span style={{ color: "#7c5cbf", fontSize: 12 }}>Try a common drug like Aspirin, Ibuprofen, or Caffeine.</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Animated Molecular Background ─────────────────────────────────────────────
 function MolecularBackground() {
@@ -316,14 +448,14 @@ function PropertyCard({ prop }) {
       onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(124,58,237,0.06)"; }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 10.5, color: T.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "'Cormorant Garamond', serif", fontWeight: 600 }}>{prop.name}</span>
+        <span style={{ fontSize: 10.5, color: T.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "Arial, sans-serif", fontWeight: 700 }}>{prop.name}</span>
         <span style={{ background: c.dot, borderRadius: "50%", width: 8, height: 8, display: "inline-block", boxShadow: `0 0 6px ${c.dot}` }} />
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: c.text, fontFamily: "'Playfair Display', serif", letterSpacing: "-0.02em" }}>
+      <div style={{ fontSize: 28, fontWeight: 700, color: c.text, fontFamily: "Arial, sans-serif" }}>
         {prop.value}
-        {prop.unit && <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 5, color: T.textMuted, fontFamily: "'Lato', sans-serif" }}>{prop.unit}</span>}
+        {prop.unit && <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 5, color: "#a78bfa", fontFamily: "Arial, sans-serif" }}>{prop.unit}</span>}
       </div>
-      <div style={{ fontSize: 11.5, color: T.textMuted, lineHeight: 1.6, fontFamily: "'Lato', sans-serif" }}>{prop.description}</div>
+      <div style={{ fontSize: 11.5, color: "#a78bfa", lineHeight: 1.6, fontFamily: "Arial, sans-serif" }}>{prop.description}</div>
     </div>
   );
 }
@@ -342,13 +474,13 @@ function ToxicityCard({ tox }) {
       onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(124,58,237,0.06)"; }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 10.5, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Cormorant Garamond', serif", fontWeight: 600 }}>{tox.endpoint}</span>
-        <span style={{ fontSize: 16, fontWeight: 700, color: c.text, fontFamily: "'Playfair Display', serif" }}>{pct}%</span>
+        <span style={{ fontSize: 10.5, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Arial, sans-serif", fontWeight: 700 }}>{tox.endpoint}</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: c.text, fontFamily: "Arial, sans-serif" }}>{pct}%</span>
       </div>
       <div style={{ background: "rgba(0,0,0,0.06)", borderRadius: 99, height: 7, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, height: "100%", background: `linear-gradient(90deg, ${c.dot}, ${c.bar})`, borderRadius: 99, transition: "width 1s ease" }} />
       </div>
-      <div style={{ fontSize: 11.5, color: T.textMuted, lineHeight: 1.6, fontFamily: "'Lato', sans-serif" }}>{tox.description}</div>
+      <div style={{ fontSize: 11.5, color: "#a78bfa", lineHeight: 1.6, fontFamily: "Arial, sans-serif" }}>{tox.description}</div>
     </div>
   );
 }
@@ -401,11 +533,11 @@ function FormulaDisplay({ formula, mw }) {
 function TabBtn({ active, onClick, children }) {
   return (
     <button onClick={onClick} style={{
-      background: active ? T.grad : "transparent",
-      border: active ? "none" : `1px solid ${T.border}`,
+      background: active ? T.grad : "rgba(80,40,160,0.3)",
+      border: active ? "none" : "1px solid rgba(180,140,255,0.4)",
       borderRadius: T.radiusSm, padding: "8px 20px",
-      color: active ? "#fff" : T.textMuted,
-      fontFamily: "'Lato', sans-serif", fontSize: 13, fontWeight: 700,
+      color: active ? "#fff" : "#e2d9f3",
+      fontFamily: "Arial, sans-serif", fontSize: 13, fontWeight: 700,
       cursor: "pointer", transition: "all 0.2s",
       boxShadow: active ? "0 4px 12px rgba(124,58,237,0.3)" : "none",
     }}>
@@ -515,12 +647,12 @@ function BatchScreen() {
               {exporting ? "⏳ Exporting..." : "⬇ Download Excel"}
             </button>
           </div>
-          <div style={{ overflowX: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: T.shadow }}>
+          <div style={{ overflowX: "auto", borderRadius: T.radius, border: "1px solid rgba(167,139,250,0.25)", boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900, background: T.bgCard }}>
               <thead>
-                <tr style={{ background: T.accentLight }}>
+                <tr style={{ background: "rgba(60,20,120,0.9)" }}>
                   {["#","Name","SMILES","Formula","Lipinski","MW (Da)","LogP","HBD","HBA","TPSA","QED","Hepatotox %","Cardiotox %","Mutagenic %"].map(h => (
-                    <th key={h} style={{ padding: "12px 14px", fontSize: 11, color: T.accent, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "'Lato', sans-serif", fontWeight: 700, borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap", textAlign: "center" }}>{h}</th>
+                    <th key={h} style={{ padding: "12px 14px", fontSize: 11, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Arial, sans-serif", fontWeight: 700, borderBottom: "1px solid rgba(167,139,250,0.3)", whiteSpace: "nowrap", textAlign: "center" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -528,7 +660,7 @@ function BatchScreen() {
                 {results.map((r, i) => {
                   const pm = Object.fromEntries(r.properties.map(p => [p.name, p]));
                   const tm = Object.fromEntries(r.toxicity.map(t => [t.endpoint, t]));
-                  const rowBg = i % 2 === 0 ? "rgba(255,255,255,0.9)" : "rgba(245,243,255,0.6)";
+                  const rowBg = i % 2 === 0 ? "rgba(20,8,50,0.75)" : "rgba(30,12,70,0.65)";
                   const td = (val, status) => ({
                     padding: "11px 14px", fontSize: 13, textAlign: "center",
                     borderBottom: `1px solid ${T.border}`, background: rowBg,
@@ -538,7 +670,7 @@ function BatchScreen() {
                   return (
                     <tr key={i}>
                       <td style={td()}>{i+1}</td>
-                      <td style={{ ...td(), fontWeight: 700, color: T.text }}>{r.name||"—"}</td>
+                      <td style={{ ...td(), fontWeight: 700, color: "#ffffff" }}>{r.name||"—"}</td>
                       <td style={{ ...td(), color: T.accent, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", fontFamily: "'Courier Prime', monospace", fontSize: 12 }} title={r.smiles}>{r.smiles.length>22?r.smiles.slice(0,22)+"…":r.smiles}</td>
                       <td style={td()}>{r.molecular_formula||"—"}</td>
                       <td style={{ ...td(), color: r.lipinski.pass?"#15803d":"#be123c", fontWeight:700 }}>{r.lipinski.pass?"PASS":"FAIL"}</td>
@@ -741,15 +873,13 @@ export default function App() {
 
                 {resultTab==="structure" && (
                   <div style={{ display:"flex", justifyContent:"center" }}>
-                    {result.structure_url ? (
-                      <div style={{ background:T.bgCard, border:`1px solid ${T.border}`, borderRadius:T.radius, padding:28, display:"inline-block", boxShadow:T.shadow, backdropFilter:"blur(12px)" }}>
-                        <div style={{ fontSize:11, color:T.textMuted, textTransform:"uppercase", letterSpacing:"0.08em", fontFamily:"'Lato', sans-serif", fontWeight:700, marginBottom:16, textAlign:"center" }}>2D Molecular Structure</div>
-                        <img src={result.structure_url} alt="2D structure" style={{ maxWidth:"100%", width:400, height:300, borderRadius:10, display:"block", border:`1px solid ${T.border}` }} />
-                        {result.name && <div style={{ textAlign:"center", marginTop:14, fontFamily:"'Playfair Display', serif", fontSize:16, color:T.textMuted }}>{result.name}</div>}
+                    <div style={{ background:"rgba(10,4,30,0.85)", border:"1px solid rgba(167,139,250,0.3)", borderRadius:T.radius, padding:24, width:"100%", maxWidth:680, boxShadow:T.shadow, backdropFilter:"blur(12px)" }}>
+                      <div style={{ fontSize:11, color:"#c4b5fd", textTransform:"uppercase", letterSpacing:"0.1em", fontFamily:"Arial, sans-serif", fontWeight:700, marginBottom:12, textAlign:"center" }}>Interactive 3D Structure</div>
+                      <Molecule3DViewer smiles={result.smiles} name={result.name} />
+                      <div style={{ fontSize:11, color:"rgba(167,139,250,0.6)", textAlign:"center", marginTop:10, fontFamily:"Arial, sans-serif" }}>
+                        🖱 Drag to rotate · Scroll to zoom · Right-click to pan
                       </div>
-                    ) : (
-                      <div style={{ color:T.textMuted, fontFamily:"'Lato', sans-serif", fontSize:13, padding:40 }}>Structure image not available.</div>
-                    )}
+                    </div>
                   </div>
                 )}
 
