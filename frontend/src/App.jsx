@@ -718,6 +718,16 @@ export default function App() {
   const [simSources, setSimSources] = useState([]);
   const [simThreshold, setSimThreshold] = useState(0.7);
   const [pdfExporting, setPdfExporting] = useState(false);
+  // Advanced Analysis state
+  const [advTab, setAdvTab] = useState("scaffold");
+  const [advSmiles, setAdvSmiles] = useState("");
+  const [advLoading, setAdvLoading] = useState({});
+  const [scaffoldResult, setScaffoldResult] = useState(null);
+  const [painsResult, setPainsResult] = useState(null);
+  const [targetsResult, setTargetsResult] = useState(null);
+  const [leadoptResult, setLeadoptResult] = useState(null);
+  const [advError, setAdvError] = useState(null);
+  const [batchSmiles, setBatchSmiles] = useState("");
 
   useEffect(() => {
     // Load jsPDF for PDF export
@@ -1101,7 +1111,7 @@ export default function App() {
 
         {/* Main tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: 28, background: "rgba(255,255,255,0.7)", borderRadius: T.radius, padding: 5, width: "fit-content", border: `1px solid ${T.border}`, backdropFilter: "blur(8px)", boxShadow: T.shadow }}>
-          {[["single","⬡ Single Molecule"],["batch","⊞ Batch Screening"]].map(([key, label]) => (
+          {[["single","⬡ Single Molecule"],["batch","⊞ Batch Screening"],["advanced","🔬 Advanced Analysis"]].map(([key, label]) => (
             <TabBtn key={key} active={mainTab===key} onClick={() => setMainTab(key)}>{label}</TabBtn>
           ))}
         </div>
@@ -1375,6 +1385,305 @@ export default function App() {
               </div>
             )}
           </>
+        )}
+
+        {mainTab==="batch" && <BatchScreen />}
+
+        {/* ── Advanced Analysis Panel ─────────────────────────────── */}
+        {mainTab==="advanced" && (
+          <div style={{ animation: "fadeUp 0.5s ease both" }}>
+            {/* SMILES input for advanced */}
+            <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "20px 24px", marginBottom: 20, backdropFilter: "blur(12px)", boxShadow: T.shadow }}>
+              <div style={{ fontSize: 11, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, fontFamily: "Arial,sans-serif", marginBottom: 10 }}>
+                🔬 Advanced Analysis — Enter SMILES
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input value={advSmiles} onChange={e => setAdvSmiles(e.target.value)}
+                  placeholder="Paste SMILES string here… or click an example above"
+                  style={{ flex: 1, background: "rgba(15,10,40,0.7)", border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", color: T.text, fontFamily: "Courier Prime, monospace", fontSize: 13, outline: "none" }}
+                />
+                <button onClick={() => { if(smiles) setAdvSmiles(smiles); }}
+                  style={{ background: "rgba(124,58,237,0.3)", border: `1px solid ${T.accent}`, color: "#c4b5fd", borderRadius: 10, padding: "10px 18px", cursor: "pointer", fontFamily: "Arial,sans-serif", fontSize: 12, fontWeight: 700 }}>
+                  ← Use current
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: "rgba(167,139,250,0.5)", marginTop: 6, fontFamily: "Arial,sans-serif" }}>
+                Tip: Analyse a molecule in Single mode first, then click "Use current" to carry it over
+              </div>
+            </div>
+
+            {/* Advanced sub-tabs */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+              {[["scaffold","🏗 Scaffold"],["pains","⚠️ PAINS Filter"],["targets","🎯 Target Prediction"],["leadopt","💡 Lead Optimisation"]].map(([key,label]) => (
+                <button key={key} onClick={() => setAdvTab(key)}
+                  style={{ padding: "10px 20px", borderRadius: 99, border: `1px solid ${advTab===key ? T.accent : T.border}`,
+                    background: advTab===key ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(255,255,255,0.04)",
+                    color: advTab===key ? "#fff" : T.textMuted, fontFamily: "Arial,sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Run button */}
+            <button onClick={async () => {
+              const smi = advSmiles.trim();
+              if (!smi) { setAdvError("Please enter a SMILES string"); return; }
+              setAdvError(null);
+              const endpoint = advTab === "scaffold" ? "/scaffold" : advTab === "pains" ? "/pains" : advTab === "targets" ? "/targets" : "/leadopt";
+              const setter = advTab === "scaffold" ? setScaffoldResult : advTab === "pains" ? setPainsResult : advTab === "targets" ? setTargetsResult : setLeadoptResult;
+              setAdvLoading(p => ({...p, [advTab]: true}));
+              try {
+                const r = await fetch(API + endpoint, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ smiles: smi }) });
+                const d = await r.json();
+                setter(d);
+              } catch(e) { setAdvError("Request failed: " + e.message); }
+              setAdvLoading(p => ({...p, [advTab]: false}));
+            }}
+              disabled={advLoading[advTab]}
+              style={{ background: advLoading[advTab] ? "rgba(124,58,237,0.3)" : "linear-gradient(135deg,#7c3aed,#a855f7)",
+                border: "none", borderRadius: 12, padding: "13px 36px", color: "#fff", fontFamily: "Arial,sans-serif",
+                fontSize: 15, fontWeight: 700, cursor: advLoading[advTab] ? "not-allowed" : "pointer", marginBottom: 24,
+                boxShadow: "0 4px 20px rgba(124,58,237,0.4)" }}>
+              {advLoading[advTab] ? "⏳ Analysing…" : `Run ${advTab==="scaffold"?"Scaffold Analysis":advTab==="pains"?"PAINS Screen":advTab==="targets"?"Target Prediction":"Lead Optimisation"}`}
+            </button>
+
+            {advError && <div style={{ color: "#f87171", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontFamily: "Arial,sans-serif", fontSize: 13 }}>{advError}</div>}
+
+            {/* ── Scaffold Results ── */}
+            {advTab==="scaffold" && scaffoldResult && !scaffoldResult.error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Core scaffold info */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 24, backdropFilter: "blur(12px)" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 16 }}>🏗 Murcko Scaffold</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    {[["Core Scaffold SMILES", scaffoldResult.scaffold_smiles || "None"],
+                      ["Generic Scaffold", scaffoldResult.generic_scaffold_smiles || "None"],
+                      ["Ring Count", scaffoldResult.ring_count],
+                      ["Ring Sizes", (scaffoldResult.ring_sizes||[]).join(", ") + "-membered"],
+                      ["Framework Atoms", scaffoldResult.framework_atoms],
+                      ["Side-chain Atoms", scaffoldResult.side_chain_atoms],
+                    ].map(([k,v]) => (
+                      <div key={k} style={{ background: "rgba(124,58,237,0.08)", borderRadius: 10, padding: "12px 16px", border: `1px solid ${T.border}` }}>
+                        <div style={{ fontSize: 10, color: T.textMuted, fontFamily: "Arial,sans-serif", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{k}</div>
+                        <div style={{ fontSize: 13, color: T.text, fontFamily: "Courier Prime, monospace", wordBreak: "break-all" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {scaffoldResult.ring_types && scaffoldResult.ring_types.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Ring Systems</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {scaffoldResult.ring_types.map((rt,i) => (
+                          <span key={i} style={{ background: "rgba(124,58,237,0.2)", border: `1px solid ${T.accent}`, borderRadius: 99, padding: "4px 14px", fontSize: 12, color: "#c4b5fd", fontFamily: "Arial,sans-serif" }}>{rt}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Scaffold properties */}
+                {scaffoldResult.scaffold_props && Object.keys(scaffoldResult.scaffold_props).length > 0 && (
+                  <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 24, backdropFilter: "blur(12px)" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 14 }}>📊 Scaffold Properties</div>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {[["MW", scaffoldResult.scaffold_props.mw + " Da"],["Formula", scaffoldResult.scaffold_props.formula],["Heavy Atoms", scaffoldResult.scaffold_props.heavy_atoms],["Rings", scaffoldResult.scaffold_props.rings]].map(([k,v]) => (
+                        <div key={k} style={{ background: "rgba(124,58,237,0.08)", borderRadius: 10, padding: "12px 20px", border: `1px solid ${T.border}`, textAlign: "center" }}>
+                          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif", marginBottom: 4 }}>{k}</div>
+                          <div style={{ fontSize: 16, color: T.accent, fontWeight: 700, fontFamily: "Arial,sans-serif" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── PAINS Results ── */}
+            {advTab==="pains" && painsResult && !painsResult.error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Verdict banner */}
+                <div style={{ background: painsResult.verdict==="clean" ? "rgba(16,185,129,0.1)" : painsResult.verdict==="fail" ? "rgba(239,68,68,0.1)" : "rgba(245,158,11,0.1)",
+                  border: `2px solid ${painsResult.verdict==="clean" ? "#10b981" : painsResult.verdict==="fail" ? "#ef4444" : "#f59e0b"}`,
+                  borderRadius: T.radius, padding: "20px 24px", backdropFilter: "blur(12px)" }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>{painsResult.verdict==="clean" ? "✅" : painsResult.verdict==="fail" ? "🚨" : "⚠️"}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: painsResult.verdict==="clean" ? "#10b981" : painsResult.verdict==="fail" ? "#f87171" : "#fbbf24", fontFamily: "Arial,sans-serif", marginBottom: 4 }}>
+                    {painsResult.verdict==="clean" ? "PAINS Clean" : painsResult.verdict==="fail" ? "PAINS Alert!" : "Structural Warning"}
+                  </div>
+                  <div style={{ fontSize: 14, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>{painsResult.verdict_text}</div>
+                  <div style={{ marginTop: 12, display: "flex", gap: 16, flexWrap: "wrap" }}>
+                    {[["PAINS Alerts", painsResult.pains_count, "#ef4444"],["Custom Alerts", painsResult.custom_hits?.length||0, "#f59e0b"],["Total Flags", painsResult.total_alerts, "#a78bfa"]].map(([k,v,c]) => (
+                      <div key={k} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 26, fontWeight: 900, color: v>0?c:"#10b981", fontFamily: "Arial,sans-serif" }}>{v}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>{k}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* PAINS hits */}
+                {painsResult.pains_hits?.length > 0 && (
+                  <div style={{ background: T.bgCard, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171", fontFamily: "Arial,sans-serif", marginBottom: 12 }}>🚨 PAINS Alerts (Baell & Holloway 2010)</div>
+                    {painsResult.pains_hits.map((h,i) => (
+                      <div key={i} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontFamily: "Arial,sans-serif" }}>
+                        <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700 }}>{h.name}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{h.source}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Custom alerts */}
+                {painsResult.custom_hits?.length > 0 && (
+                  <div style={{ background: T.bgCard, border: `1px solid rgba(245,158,11,0.3)`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", fontFamily: "Arial,sans-serif", marginBottom: 12 }}>⚠️ Additional Structural Alerts</div>
+                    {painsResult.custom_hits.map((h,i) => (
+                      <div key={i} style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontFamily: "Arial,sans-serif" }}>
+                        <div style={{ fontSize: 13, color: "#fde68a", fontWeight: 700 }}>{h.name}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2, fontFamily: "Courier Prime,monospace" }}>{h.smarts}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {painsResult.verdict==="clean" && (
+                  <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: T.radius, padding: 16, fontFamily: "Arial,sans-serif", fontSize: 13, color: "#6ee7b7" }}>
+                    ✅ No PAINS or structural alerts found. This compound is suitable for HTS campaigns.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Target Prediction Results ── */}
+            {advTab==="targets" && targetsResult && !targetsResult.error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {targetsResult.count === 0 ? (
+                  <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 24, fontFamily: "Arial,sans-serif", color: T.textMuted, textAlign: "center" }}>
+                    No pharmacophore patterns matched. This may be a novel scaffold or very small fragment.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 20px", fontFamily: "Arial,sans-serif", fontSize: 13, color: T.textMuted, backdropFilter: "blur(12px)" }}>
+                      🎯 Found <strong style={{ color: T.text }}>{targetsResult.count}</strong> potential target class{targetsResult.count!==1?"es":""} based on pharmacophore SMARTS matching.
+                      Results ranked by confidence. Rule-based prediction — use as hypothesis generation only.
+                    </div>
+                    {targetsResult.targets.map((t,i) => (
+                      <div key={i} style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif" }}>{t.emoji} {t.target}</div>
+                            <div style={{ fontSize: 12, color: T.textMuted, fontFamily: "Arial,sans-serif", marginTop: 2 }}>{t.family}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 22, fontWeight: 900, color: t.confidence>=70?"#10b981":t.confidence>=40?"#f59e0b":"#a78bfa", fontFamily: "Arial,sans-serif" }}>{t.confidence}%</div>
+                            <div style={{ fontSize: 10, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>confidence</div>
+                          </div>
+                        </div>
+                        {/* Confidence bar */}
+                        <div style={{ background: "rgba(255,255,255,0.08)", borderRadius: 99, height: 6, marginBottom: 12, overflow: "hidden" }}>
+                          <div style={{ width: `${t.confidence}%`, height: "100%", borderRadius: 99, background: t.confidence>=70?"linear-gradient(90deg,#10b981,#34d399)":t.confidence>=40?"linear-gradient(90deg,#f59e0b,#fbbf24)":"linear-gradient(90deg,#7c3aed,#a855f7)", transition: "width 0.6s ease" }} />
+                        </div>
+                        <div style={{ fontSize: 13, color: T.textMuted, fontFamily: "Arial,sans-serif", marginBottom: 10, lineHeight: 1.5 }}>{t.description}</div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>Known drugs:</span>
+                          {t.examples.map(ex => (
+                            <span key={ex} style={{ background: "rgba(124,58,237,0.2)", border: `1px solid ${T.accent}`, borderRadius: 99, padding: "2px 10px", fontSize: 11, color: "#c4b5fd", fontFamily: "Arial,sans-serif" }}>{ex}</span>
+                          ))}
+                          <span style={{ fontSize: 11, color: T.textMuted, marginLeft: "auto", fontFamily: "Arial,sans-serif" }}>{t.patterns_matched}/{t.patterns_total} patterns matched</span>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Lead Optimisation Results ── */}
+            {advTab==="leadopt" && leadoptResult && !leadoptResult.error && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Overview */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 24, backdropFilter: "blur(12px)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif" }}>💡 Lead Optimisation Report</div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: leadoptResult.qed_score>=0.7?"#10b981":leadoptResult.qed_score>=0.4?"#f59e0b":"#ef4444", fontFamily: "Arial,sans-serif" }}>{Math.round(leadoptResult.qed_score*100)}</div>
+                      <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>QED Score</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+                    <span style={{ background: leadoptResult.lipinski_pass?"rgba(16,185,129,0.2)":"rgba(239,68,68,0.2)", border: `1px solid ${leadoptResult.lipinski_pass?"#10b981":"#ef4444"}`, borderRadius: 99, padding: "4px 14px", fontSize: 12, color: leadoptResult.lipinski_pass?"#34d399":"#f87171", fontFamily: "Arial,sans-serif", fontWeight: 700 }}>
+                      {leadoptResult.lipinski_pass?"✅ Lipinski Pass":"❌ Lipinski Fail"}
+                    </span>
+                    <span style={{ background: "rgba(124,58,237,0.2)", border: `1px solid ${T.accent}`, borderRadius: 99, padding: "4px 14px", fontSize: 12, color: "#c4b5fd", fontFamily: "Arial,sans-serif" }}>
+                      {leadoptResult.issue_count} issue{leadoptResult.issue_count!==1?"s":""} found
+                    </span>
+                    {leadoptResult.optimisation_potential > 0 && (
+                      <span style={{ background: "rgba(245,158,11,0.2)", border: "1px solid #f59e0b", borderRadius: 99, padding: "4px 14px", fontSize: 12, color: "#fbbf24", fontFamily: "Arial,sans-serif" }}>
+                        ~{leadoptResult.optimisation_potential}% improvement potential
+                      </span>
+                    )}
+                  </div>
+                  {/* Current properties mini-grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                    {leadoptResult.current_properties && Object.entries(leadoptResult.current_properties).map(([k,v]) => (
+                      <div key={k} style={{ background: "rgba(124,58,237,0.06)", borderRadius: 8, padding: "8px 12px", textAlign: "center", border: `1px solid ${T.border}` }}>
+                        <div style={{ fontSize: 10, color: T.textMuted, fontFamily: "Arial,sans-serif", textTransform: "uppercase" }}>{k}</div>
+                        <div style={{ fontSize: 14, color: T.text, fontWeight: 700, fontFamily: "Arial,sans-serif" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Suggestions */}
+                {leadoptResult.suggestions?.length > 0 && (
+                  <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 14 }}>🎯 Optimisation Suggestions</div>
+                    {leadoptResult.suggestions.map((s,i) => (
+                      <div key={i} style={{ background: s.priority==="high"?"rgba(239,68,68,0.06)":s.priority==="medium"?"rgba(245,158,11,0.06)":"rgba(124,58,237,0.06)",
+                        border: `1px solid ${s.priority==="high"?"rgba(239,68,68,0.3)":s.priority==="medium"?"rgba(245,158,11,0.3)":"rgba(124,58,237,0.3)"}`,
+                        borderRadius: 10, padding: "14px 18px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif" }}>{s.icon} {s.title}</div>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 10px", borderRadius: 99, fontFamily: "Arial,sans-serif",
+                            background: s.priority==="high"?"rgba(239,68,68,0.2)":s.priority==="medium"?"rgba(245,158,11,0.2)":"rgba(124,58,237,0.2)",
+                            color: s.priority==="high"?"#f87171":s.priority==="medium"?"#fbbf24":"#c4b5fd" }}>
+                            {s.priority.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 13, color: T.textMuted, fontFamily: "Arial,sans-serif", lineHeight: 1.5, marginBottom: 6 }}>{s.detail}</div>
+                        <div style={{ fontSize: 12, color: "#a78bfa", fontFamily: "Arial,sans-serif", fontStyle: "italic" }}>Impact: {s.impact}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Bioisostere suggestions */}
+                {leadoptResult.bioisosteres?.length > 0 && (
+                  <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 14 }}>🔄 Bioisostere Replacements</div>
+                    {leadoptResult.bioisosteres.map((b,i) => (
+                      <div key={i} style={{ background: "rgba(124,58,237,0.06)", border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6, flexWrap: "wrap" }}>
+                          <span style={{ background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "4px 12px", fontSize: 12, color: "#fca5a5", fontFamily: "Courier Prime,monospace" }}>{b.original}</span>
+                          <span style={{ color: T.textMuted, fontSize: 18 }}>→</span>
+                          <span style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 8, padding: "4px 12px", fontSize: 12, color: "#6ee7b7", fontFamily: "Courier Prime,monospace" }}>{b.replacement}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: T.textMuted, fontFamily: "Arial,sans-serif", lineHeight: 1.5 }}>{b.reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {leadoptResult.issue_count === 0 && (
+                  <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: T.radius, padding: 20, fontFamily: "Arial,sans-serif", fontSize: 14, color: "#6ee7b7", textAlign: "center" }}>
+                    ✅ All key parameters are within optimal ranges. This molecule has good drug-like properties!
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Error states for advanced results */}
+            {advTab==="scaffold" && scaffoldResult?.error && <div style={{ color: "#f87171", fontFamily: "Arial,sans-serif", padding: 16 }}>Error: {scaffoldResult.error}</div>}
+            {advTab==="pains" && painsResult?.error && <div style={{ color: "#f87171", fontFamily: "Arial,sans-serif", padding: 16 }}>Error: {painsResult.error}</div>}
+            {advTab==="targets" && targetsResult?.error && <div style={{ color: "#f87171", fontFamily: "Arial,sans-serif", padding: 16 }}>Error: {targetsResult.error}</div>}
+            {advTab==="leadopt" && leadoptResult?.error && <div style={{ color: "#f87171", fontFamily: "Arial,sans-serif", padding: 16 }}>Error: {leadoptResult.error}</div>}
+          </div>
         )}
 
         {mainTab==="batch" && <BatchScreen />}

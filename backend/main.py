@@ -662,3 +662,577 @@ async def similarity_search(req: SimilarityRequest):
         "sources": sources_used,
         "threshold": threshold / 100,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ADVANCED ANALYSIS ENDPOINTS  (Scaffold · PAINS · Targets · Lead Opt)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AdvancedRequest(BaseModel):
+    smiles: str
+    batch: Optional[List[str]] = None   # for scaffold batch comparison
+
+# ── PAINS alerts (subset of Baell & Holloway 2010, RDKit-compatible) ──────────
+PAINS_ALERTS = [
+    ("Quinone", "O=C1C=CC(=O)C=C1"),
+    ("Catechol", "Oc1ccccc1O"),
+    ("Michael acceptor (vinyl ketone)", "C=CC(=O)"),
+    ("Aldehyde", "[CX3H1](=O)"),
+    ("Thiol reactive (isothiocyanate)", "N=C=S"),
+    ("Epoxide", "C1OC1"),
+    ("Acylhydrazide", "C(=O)NN"),
+    ("Sulfonyl halide", "S(=O)(=O)[F,Cl,Br,I]"),
+    ("Acrylate/acrylamide", "C=CC(=O)[O,N]"),
+    ("Rhodanine", "O=C1CSC(=S)N1"),
+    ("Hydroxamic acid", "C(=O)NO"),
+    ("Azide", "N=[N+]=[N-]"),
+    ("Diazo", "N#N"),
+    ("Nitroso", "N=O"),
+    ("Nitro aromatic", "[nX2]1ccccc1[N+](=O)[O-]"),
+    ("Polyhalide", "[F,Cl,Br,I][CX4][F,Cl,Br,I]"),
+    ("Imine reactive", "C=N[OH]"),
+    ("Thiazolidinedione", "O=C1CSC(=O)N1"),
+    ("Mannich base", "N[CH2]C(=O)"),
+    ("Coumarin", "O=C1OC2=CC=CC=C2C=C1"),
+    ("Propargylamine", "C#CCN"),
+    ("Anilinic NH2 (aniline)", "Nc1ccccc1"),
+    ("Schiff base", "C=N[!H]"),
+    ("Beta-lactam (assay interference)", "C1CC(=O)N1"),
+    ("Disulfide", "SSC"),
+    ("Peroxide", "OO"),
+    ("Heavy metal chelator (EDTA-like)", "OCC(=O)NCC(=O)O"),
+    ("Iodoacetamide", "ICC(=O)N"),
+    ("Maleimide", "O=C1C=CC(=O)N1"),
+    ("Activated ester", "C(=O)ON"),
+]
+
+# ── Drug-target pharmacophore patterns ────────────────────────────────────────
+TARGET_PATTERNS = [
+    {
+        "target": "Serine Proteases",
+        "family": "Hydrolases",
+        "smarts": ["C(=O)[NH]C(=O)", "C1CC(=O)N1", "C(=O)c1ccc(cc1)"],
+        "examples": ["Aspirin", "Clopidogrel", "Rivaroxaban"],
+        "description": "Molecules with electrophilic carbonyls that covalently modify Ser residues",
+        "emoji": "✂️"
+    },
+    {
+        "target": "Kinases (ATP-site)",
+        "family": "Transferases",
+        "smarts": ["c1cnc2[nH]cnc2c1", "c1ccc2[nH]cnc2c1", "Nc1ncnc2[nH]cnc12", "c1cnc(N)nc1"],
+        "examples": ["Imatinib", "Gefitinib", "Erlotinib"],
+        "description": "Adenine-like scaffolds that compete with ATP in kinase active sites",
+        "emoji": "🔑"
+    },
+    {
+        "target": "GPCRs (Aminergic)",
+        "family": "G-Protein Coupled Receptors",
+        "smarts": ["NCCc1ccccc1", "NCCC1=CC=CC=C1", "NCC1=CC=CC=C1"],
+        "examples": ["Dopamine", "Adrenaline", "Propranolol"],
+        "description": "Phenethylamine scaffold typical of aminergic GPCR ligands",
+        "emoji": "📡"
+    },
+    {
+        "target": "Nuclear Receptors",
+        "family": "Transcription Factors",
+        "smarts": ["[C@@H]1CC[C@H]2", "C1CCC2CCCCC2C1", "OC1=CC2=C(CC[C@@H]3"),
+        "examples": ["Estradiol", "Testosterone", "Dexamethasone"],
+        "description": "Steroidal scaffold binding to nuclear hormone receptors",
+        "emoji": "🧬"
+    },
+    {
+        "target": "COX-1/COX-2 (NSAIDs)",
+        "family": "Oxidoreductases",
+        "smarts": ["c1ccc(cc1)C(=O)O", "CC(=O)Oc1ccccc1", "c1ccc(cc1)S(=O)(=O)N"],
+        "examples": ["Aspirin", "Ibuprofen", "Celecoxib"],
+        "description": "Carboxylic acid or sulfonamide groups on aryl scaffolds typical of NSAIDs",
+        "emoji": "🔥"
+    },
+    {
+        "target": "ACE / Metalloproteinases",
+        "family": "Metalloproteases",
+        "smarts": ["C(=O)CC(N)C(=O)O", "C(=O)N1CCCC1C(=O)O", "SCC(N)C(=O)O"],
+        "examples": ["Lisinopril", "Captopril", "Enalapril"],
+        "description": "Zinc-chelating groups (thiol, carboxylate) targeting metalloprotease active sites",
+        "emoji": "⚙️"
+    },
+    {
+        "target": "Topoisomerase / DNA intercalators",
+        "family": "Isomerases",
+        "smarts": ["c1ccc2cc3ccccc3cc2c1", "c1ccc2ccccc2c1", "O=C1c2ccccc2C(=O)c2ccccc21"],
+        "examples": ["Doxorubicin", "Daunorubicin", "Mitoxantrone"],
+        "description": "Polycyclic aromatic systems that intercalate between DNA base pairs",
+        "emoji": "🧪"
+    },
+    {
+        "target": "Cholinesterases (AChE/BChE)",
+        "family": "Hydrolases",
+        "smarts": ["OC(=O)N(C)C", "OC(=O)c1ccccc1", "[N+](C)(C)(C)CC"],
+        "examples": ["Donepezil", "Rivastigmine", "Galantamine"],
+        "description": "Carbamate or quaternary ammonium groups targeting cholinesterase active site",
+        "emoji": "🧠"
+    },
+    {
+        "target": "HMG-CoA Reductase (Statins)",
+        "family": "Oxidoreductases",
+        "smarts": ["OCC(O)CC(=O)O", "OC(CC(=O)O)CC(O)", "C1CC(O)CC(=O)O1"],
+        "examples": ["Atorvastatin", "Simvastatin", "Rosuvastatin"],
+        "description": "Dihydroxy acid pharmacophore mimicking HMG-CoA substrate",
+        "emoji": "💊"
+    },
+    {
+        "target": "Beta-Lactamases / PBPs",
+        "family": "Antibacterials",
+        "smarts": ["C1CC(=O)N1", "C1CN2C(=O)C(C2=O)", "S1CC2N(C1)C(=O)"],
+        "examples": ["Penicillin", "Amoxicillin", "Cephalosporin"],
+        "description": "Beta-lactam ring that acylates the active-site serine of penicillin-binding proteins",
+        "emoji": "🦠"
+    },
+    {
+        "target": "Tubulin / Microtubule",
+        "family": "Cytoskeletal",
+        "smarts": ["c1ccc(cc1)-c1ccc(cc1)", "C(=O)Nc1ccccc1OC", "c1cncc(c1)C(=O)N"],
+        "examples": ["Paclitaxel", "Colchicine", "Vincristine"],
+        "description": "Colchicine-site or taxane-site binders disrupting microtubule dynamics",
+        "emoji": "🌀"
+    },
+    {
+        "target": "DHFR / Antifolates",
+        "family": "Reductases",
+        "smarts": ["Nc1nc(N)c2ncc(Cc3ccccc3)nc2n1", "Nc1nc2ccc(CNC3=CC=C(C=C3)C(=O)N)cc2s1"],
+        "examples": ["Methotrexate", "Trimethoprim", "Pyrimethamine"],
+        "description": "2,4-diaminopyrimidine scaffold targeting dihydrofolate reductase",
+        "emoji": "🧫"
+    },
+    {
+        "target": "Ion Channels (Na⁺/Ca²⁺)",
+        "family": "Ion Channels",
+        "smarts": ["c1ccccc1N(C)C", "CNCC(O)c1ccccc1", "CC(N)Cc1ccccc1"],
+        "examples": ["Lidocaine", "Verapamil", "Amlodipine"],
+        "description": "Tertiary amine + aromatic pharmacophore blocking ion channel pores",
+        "emoji": "⚡"
+    },
+    {
+        "target": "Dihydropteroate Synthase (Sulfonamides)",
+        "family": "Antibacterials",
+        "smarts": ["c1ccc(cc1)S(=O)(=O)N", "NS(=O)(=O)c1ccccc1"],
+        "examples": ["Sulfamethoxazole", "Sulfadiazine"],
+        "description": "Sulfonamide group mimicking PABA substrate of bacterial DHPS",
+        "emoji": "🔬"
+    },
+    {
+        "target": "PDE Inhibitors",
+        "family": "Phosphodiesterases",
+        "smarts": ["c1nc2[nH]cnc2c(=O)[nH]1", "O=c1[nH]cnc2ncnc12", "Cc1nc2c([nH]1)c(=O)[nH]c(=O)n2"],
+        "examples": ["Sildenafil", "Tadalafil", "Theophylline"],
+        "description": "Purine-like scaffold occupying the cyclic nucleotide binding pocket of PDEs",
+        "emoji": "💡"
+    },
+]
+
+@app.post("/scaffold")
+async def scaffold_analysis(req: AdvancedRequest):
+    """Extract Murcko scaffold, ring systems, and batch scaffold comparison"""
+    if not RDKIT_OK:
+        return {"error": "RDKit not available"}
+    try:
+        from rdkit.Chem.Scaffolds import MurckoScaffold
+        from rdkit.Chem import Draw, rdDepictor
+        from rdkit.Chem import rdMolDescriptors
+
+        mol = Chem.MolFromSmiles(req.smiles.strip())
+        if mol is None:
+            return {"error": "Invalid SMILES"}
+
+        # ── Core Murcko scaffold ─────────────────────────────────────────────
+        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        scaffold_smiles = Chem.MolToSmiles(scaffold) if scaffold else ""
+
+        # Generic scaffold (all side chains removed, heteroatoms → C)
+        generic = MurckoScaffold.MakeScaffoldGeneric(scaffold) if scaffold else None
+        generic_smiles = Chem.MolToSmiles(generic) if generic else ""
+
+        # ── Ring systems ─────────────────────────────────────────────────────
+        ring_info = mol.GetRingInfo()
+        rings = ring_info.AtomRings()
+        ring_count = len(rings)
+        ring_sizes = sorted(set(len(r) for r in rings))
+
+        # Identify ring types
+        ring_types = []
+        for ring in rings:
+            atoms = [mol.GetAtomWithIdx(i) for i in ring]
+            is_aromatic = all(a.GetIsAromatic() for a in atoms)
+            has_hetero = any(a.GetAtomicNum() not in (6,1) for a in atoms)
+            size = len(ring)
+            label = f"{'Aromatic' if is_aromatic else 'Aliphatic'} {'heterocyclic' if has_hetero else 'carbocyclic'} {size}-membered"
+            ring_types.append(label)
+
+        # ── Scaffold atoms (which atoms are in scaffold) ──────────────────────
+        scaffold_atom_indices = []
+        if scaffold:
+            match = mol.GetSubstructMatch(scaffold)
+            scaffold_atom_indices = list(match)
+
+        # ── Scaffold MW and formula ───────────────────────────────────────────
+        scaffold_props = {}
+        if scaffold and scaffold.GetNumAtoms() > 0:
+            scaffold_props = {
+                "mw": round(Descriptors.MolWt(scaffold), 2),
+                "formula": rdMolDescriptors.CalcMolFormula(scaffold),
+                "heavy_atoms": scaffold.GetNumHeavyAtoms(),
+                "rings": scaffold.GetRingInfo().NumRings(),
+            }
+
+        # ── Batch scaffold comparison ─────────────────────────────────────────
+        batch_results = []
+        if req.batch:
+            scaffold_groups = {}
+            for smi in req.batch:
+                smi = smi.strip()
+                if not smi:
+                    continue
+                m = Chem.MolFromSmiles(smi)
+                if m is None:
+                    batch_results.append({"smiles": smi, "error": "Invalid SMILES"})
+                    continue
+                try:
+                    sc = MurckoScaffold.GetScaffoldForMol(m)
+                    sc_smi = Chem.MolToSmiles(sc) if sc else "No scaffold"
+                    shared = sc_smi == scaffold_smiles
+                    batch_results.append({
+                        "smiles": smi,
+                        "scaffold": sc_smi,
+                        "shared_scaffold": shared,
+                        "ring_count": m.GetRingInfo().NumRings(),
+                    })
+                    scaffold_groups[sc_smi] = scaffold_groups.get(sc_smi, 0) + 1
+                except:
+                    batch_results.append({"smiles": smi, "error": "Processing failed"})
+
+        return {
+            "scaffold_smiles": scaffold_smiles,
+            "generic_scaffold_smiles": generic_smiles,
+            "scaffold_atom_indices": scaffold_atom_indices,
+            "scaffold_props": scaffold_props,
+            "ring_count": ring_count,
+            "ring_sizes": ring_sizes,
+            "ring_types": list(set(ring_types)),
+            "framework_atoms": len(scaffold_atom_indices),
+            "side_chain_atoms": mol.GetNumHeavyAtoms() - len(scaffold_atom_indices),
+            "batch_results": batch_results,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/pains")
+async def pains_filter(req: AdvancedRequest):
+    """Screen molecule against PAINS alerts"""
+    if not RDKIT_OK:
+        return {"error": "RDKit not available"}
+    try:
+        # Also use RDKit's built-in FilterCatalog for PAINS
+        from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+        mol = Chem.MolFromSmiles(req.smiles.strip())
+        if mol is None:
+            return {"error": "Invalid SMILES"}
+
+        # ── RDKit built-in PAINS catalog (most comprehensive) ─────────────────
+        params = FilterCatalogParams()
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_A)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_B)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_C)
+        catalog = FilterCatalog(params)
+
+        hits = []
+        entries = catalog.GetMatches(mol)
+        for entry in entries:
+            hits.append({
+                "name": entry.GetDescription(),
+                "source": "PAINS (Baell & Holloway 2010)",
+                "severity": "fail",
+                "matched_atoms": [],
+            })
+
+        # ── Additional custom alerts ──────────────────────────────────────────
+        custom_hits = []
+        for name, smarts in PAINS_ALERTS:
+            try:
+                patt = Chem.MolFromSmarts(smarts)
+                if patt and mol.HasSubstructMatch(patt):
+                    match_atoms = list(mol.GetSubstructMatch(patt))
+                    custom_hits.append({
+                        "name": name,
+                        "smarts": smarts,
+                        "source": "Custom alerts",
+                        "severity": "warn",
+                        "matched_atoms": match_atoms,
+                    })
+            except:
+                continue
+
+        all_hits = hits + custom_hits
+        total = len(all_hits)
+        pains_count = len(hits)
+
+        if total == 0:
+            verdict = "clean"
+            verdict_text = "No PAINS alerts — compound looks clean for HTS"
+            color = "green"
+        elif pains_count > 0:
+            verdict = "fail"
+            verdict_text = f"{pains_count} PAINS alert(s) detected — likely to cause assay interference"
+            color = "red"
+        else:
+            verdict = "warn"
+            verdict_text = f"{len(custom_hits)} structural alert(s) — use with caution in HTS"
+            color = "yellow"
+
+        return {
+            "verdict": verdict,
+            "verdict_text": verdict_text,
+            "color": color,
+            "pains_hits": hits,
+            "custom_hits": custom_hits,
+            "total_alerts": total,
+            "pains_count": pains_count,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/targets")
+async def target_prediction(req: AdvancedRequest):
+    """Predict likely drug targets using pharmacophore SMARTS patterns"""
+    if not RDKIT_OK:
+        return {"error": "RDKit not available"}
+    try:
+        mol = Chem.MolFromSmiles(req.smiles.strip())
+        if mol is None:
+            return {"error": "Invalid SMILES"}
+
+        matches = []
+        for tp in TARGET_PATTERNS:
+            hit_count = 0
+            total = len(tp["smarts"])
+            matched_smarts = []
+            for smarts in tp["smarts"]:
+                try:
+                    patt = Chem.MolFromSmarts(smarts)
+                    if patt and mol.HasSubstructMatch(patt):
+                        hit_count += 1
+                        matched_smarts.append(smarts)
+                except:
+                    continue
+            if hit_count > 0:
+                confidence = round((hit_count / total) * 100)
+                # Boost confidence if multiple patterns match
+                if hit_count >= 2:
+                    confidence = min(confidence + 20, 95)
+                matches.append({
+                    "target": tp["target"],
+                    "family": tp["family"],
+                    "confidence": confidence,
+                    "patterns_matched": hit_count,
+                    "patterns_total": total,
+                    "examples": tp["examples"],
+                    "description": tp["description"],
+                    "emoji": tp["emoji"],
+                    "matched_smarts": matched_smarts,
+                })
+
+        # Sort by confidence
+        matches.sort(key=lambda x: x["confidence"], reverse=True)
+
+        return {
+            "targets": matches,
+            "count": len(matches),
+            "top_target": matches[0] if matches else None,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/leadopt")
+async def lead_optimisation(req: AdvancedRequest):
+    """Suggest lead optimisation changes to improve drug-likeness"""
+    if not RDKIT_OK:
+        return {"error": "RDKit not available"}
+    try:
+        from rdkit.Chem import AllChem, rdMolTransforms
+
+        mol = Chem.MolFromSmiles(req.smiles.strip())
+        if mol is None:
+            return {"error": "Invalid SMILES"}
+
+        # ── Calculate current properties ─────────────────────────────────────
+        mw     = Descriptors.MolWt(mol)
+        logp   = Crippen.MolLogP(mol)
+        hbd    = rdmd.CalcNumHBD(mol)
+        hba    = rdmd.CalcNumHBA(mol)
+        tpsa   = rdmd.CalcTPSA(mol)
+        rotb   = rdmd.CalcNumRotatableBonds(mol)
+        qed    = QED.qed(mol)
+        rings  = mol.GetRingInfo().NumRings()
+        arom   = rdmd.CalcNumAromaticRings(mol)
+        heavy  = mol.GetNumHeavyAtoms()
+
+        issues = []
+        suggestions = []
+        score_deductions = 0
+
+        # ── Rule checks and suggestions ───────────────────────────────────────
+        if mw > 500:
+            excess = round(mw - 500)
+            issues.append({"param": "Molecular Weight", "value": round(mw,1), "target": "≤500 Da", "severity": "high" if mw>600 else "medium"})
+            suggestions.append({
+                "type": "reduce_mw",
+                "priority": "high" if mw>600 else "medium",
+                "title": f"Reduce MW by ~{excess} Da",
+                "detail": "Remove or truncate bulky substituents. Consider replacing aromatic rings with smaller heteroaromatic systems, or trimming alkyl chains.",
+                "impact": f"MW {round(mw,1)} → target <500 Da",
+                "icon": "⚖️"
+            })
+            score_deductions += 2 if mw > 600 else 1
+
+        if logp > 5:
+            issues.append({"param": "LogP", "value": round(logp,2), "target": "≤5", "severity": "high" if logp>7 else "medium"})
+            suggestions.append({
+                "type": "reduce_logp",
+                "priority": "high" if logp>7 else "medium",
+                "title": f"Reduce lipophilicity (LogP {round(logp,1)} → <5)",
+                "detail": "Add polar groups (OH, NH₂, COOH) to reduce LogP. Replace lipophilic aromatic rings with pyridine/pyrimidine. Remove halogen substituents.",
+                "impact": "Improves aqueous solubility and reduces CYP metabolism liability",
+                "icon": "💧"
+            })
+            score_deductions += 2 if logp > 7 else 1
+        elif logp < 0:
+            issues.append({"param": "LogP", "value": round(logp,2), "target": "0–5", "severity": "low"})
+            suggestions.append({
+                "type": "increase_logp",
+                "priority": "low",
+                "title": f"Slightly increase lipophilicity (LogP {round(logp,1)} → 0–2)",
+                "detail": "Add small alkyl groups or a fluorine to improve membrane permeability.",
+                "impact": "Improves cell membrane penetration",
+                "icon": "🔆"
+            })
+            score_deductions += 1
+
+        if hbd > 5:
+            issues.append({"param": "H-Bond Donors", "value": hbd, "target": "≤5", "severity": "medium"})
+            suggestions.append({
+                "type": "reduce_hbd",
+                "priority": "medium",
+                "title": f"Reduce H-bond donors ({hbd} → ≤5)",
+                "detail": "Cap NH or OH groups via methylation or acetylation. Consider prodrug strategies for essential polar groups.",
+                "impact": "Improves oral bioavailability and membrane permeability",
+                "icon": "🔗"
+            })
+            score_deductions += 1
+
+        if hba > 10:
+            issues.append({"param": "H-Bond Acceptors", "value": hba, "target": "≤10", "severity": "medium"})
+            suggestions.append({
+                "type": "reduce_hba",
+                "priority": "medium",
+                "title": f"Reduce H-bond acceptors ({hba} → ≤10)",
+                "detail": "Replace polyether chains with simpler linkers. Remove excess carbonyl or ether groups.",
+                "impact": "Improves GI absorption",
+                "icon": "🎯"
+            })
+            score_deductions += 1
+
+        if tpsa > 140:
+            issues.append({"param": "TPSA", "value": round(tpsa,1), "target": "≤140 Ų", "severity": "high" if tpsa>180 else "medium"})
+            suggestions.append({
+                "type": "reduce_tpsa",
+                "priority": "high" if tpsa>180 else "medium",
+                "title": f"Reduce TPSA ({round(tpsa,1)} → <140 Ų)",
+                "detail": "Methylate polar NH groups, replace carboxylic acids with bioisosteres (tetrazole, sulfonamide with lower TPSA). Avoid adding more N/O atoms.",
+                "impact": "Essential for CNS penetration (<90 Ų) and oral absorption (<140 Ų)",
+                "icon": "🌐"
+            })
+            score_deductions += 2 if tpsa > 180 else 1
+
+        if rotb > 10:
+            issues.append({"param": "Rotatable Bonds", "value": rotb, "target": "≤10", "severity": "medium"})
+            suggestions.append({
+                "type": "reduce_rotb",
+                "priority": "medium",
+                "title": f"Reduce rotatable bonds ({rotb} → ≤10)",
+                "detail": "Cyclise flexible chains into rings. Replace long alkyl linkers with shorter, constrained linkers. Use macrocyclisation for very flexible molecules.",
+                "impact": "Improves oral bioavailability and reduces entropic cost of binding",
+                "icon": "🔄"
+            })
+            score_deductions += 1
+
+        if arom > 3:
+            issues.append({"param": "Aromatic Rings", "value": arom, "target": "≤3", "severity": "medium"})
+            suggestions.append({
+                "type": "reduce_arom",
+                "priority": "low",
+                "title": f"Reduce aromatic ring count ({arom} → ≤3)",
+                "detail": "Replace one aromatic ring with a saturated ring (sp3 enrichment). This improves aqueous solubility and reduces flat-molecule aggregation.",
+                "impact": "Reduces promiscuity, improves selectivity and solubility",
+                "icon": "⭕"
+            })
+            score_deductions += 1
+
+        # ── Bioisostere suggestions ───────────────────────────────────────────
+        bioisosteres = []
+
+        # Carboxylic acid → tetrazole
+        cooh = Chem.MolFromSmarts("C(=O)O")
+        if mol.HasSubstructMatch(cooh):
+            bioisosteres.append({
+                "original": "Carboxylic acid (-COOH)",
+                "replacement": "Tetrazole (-CN₄H)",
+                "reason": "Same pKa, better membrane permeability, metabolically more stable",
+                "icon": "🔄"
+            })
+
+        # Amide → bioisosteres
+        amide = Chem.MolFromSmarts("C(=O)N")
+        if mol.HasSubstructMatch(amide):
+            bioisosteres.append({
+                "original": "Amide (-CONH-)",
+                "replacement": "Oxazole or (E)-alkene",
+                "reason": "Resists proteolytic cleavage, maintains H-bonding geometry",
+                "icon": "🔄"
+            })
+
+        # Phenol → fluorophenyl
+        phenol = Chem.MolFromSmarts("Oc1ccccc1")
+        if mol.HasSubstructMatch(phenol):
+            bioisosteres.append({
+                "original": "Phenol (-OH on ring)",
+                "replacement": "Fluorine (-F) or difluoromethyl (-CHF₂)",
+                "reason": "Reduces glucuronidation liability, maintains H-bond character",
+                "icon": "🔄"
+            })
+
+        # ── Overall score ─────────────────────────────────────────────────────
+        base_score = round(qed * 100)
+        opt_potential = min(score_deductions * 12, 40)
+
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        suggestions.sort(key=lambda x: priority_order.get(x["priority"], 3))
+
+        return {
+            "current_properties": {
+                "mw": round(mw, 1), "logp": round(logp, 2),
+                "hbd": hbd, "hba": hba, "tpsa": round(tpsa, 1),
+                "rotb": rotb, "arom": arom, "qed": round(qed, 3),
+            },
+            "issues": issues,
+            "suggestions": suggestions,
+            "bioisosteres": bioisosteres,
+            "qed_score": round(qed, 3),
+            "optimisation_potential": opt_potential,
+            "lipinski_pass": mw<=500 and logp<=5 and hbd<=5 and hba<=10,
+            "issue_count": len(issues),
+        }
+    except Exception as e:
+        return {"error": str(e)}
