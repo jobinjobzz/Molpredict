@@ -735,7 +735,7 @@ TARGET_PATTERNS = [
     {
         "target": "Nuclear Receptors",
         "family": "Transcription Factors",
-        "smarts": ["[C@@H]1CC[C@H]2", "C1CCC2CCCCC2C1", "OC1=CC2=C(CC[C@@H]3"),
+        "smarts": ["[C@@H]1CC[C@H]2", "C1CCC2CCCCC2C1", "OC1=CC2=CCCC2CC1"],
         "examples": ["Estradiol", "Testosterone", "Dexamethasone"],
         "description": "Steroidal scaffold binding to nuclear hormone receptors",
         "emoji": "🧬"
