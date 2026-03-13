@@ -322,6 +322,197 @@ def batch_export(req: BatchRequest):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=molpredict_results.xlsx"})
 
+
+class SingleExportRequest(BaseModel):
+    smiles: str
+    name: Optional[str] = None
+    scaffold: Optional[dict] = None
+    pains: Optional[dict] = None
+    targets: Optional[dict] = None
+    leadopt: Optional[dict] = None
+
+@app.post("/export/single")
+def export_single(req: SingleExportRequest):
+    """Export single molecule with optional Advanced Analysis data as Excel"""
+    from openpyxl import Workbook
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    r = compute_properties(req.smiles.strip())
+    if req.name: r.name = req.name
+
+    hf = PatternFill("solid", fgColor="0D1B2A")
+    af = PatternFill("solid", fgColor="0A1520")
+    hfont = Font(color="60A5FA", bold=True, size=10)
+    wfont = Font(color="E2E8F0", size=10)
+    gfont = Font(color="4ADE80", bold=True, size=10)
+    yfont = Font(color="FCD34D", bold=True, size=10)
+    rfont = Font(color="F87171", bold=True, size=10)
+    pfont = Font(color="C4B5FD", bold=True, size=10)
+    ctr = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin = Border(
+        left=Side(style="thin", color="1E3A5C"), right=Side(style="thin", color="1E3A5C"),
+        top=Side(style="thin", color="1E3A5C"), bottom=Side(style="thin", color="1E3A5C")
+    )
+    def sf(s): return gfont if s == "good" else (yfont if s == "warning" else rfont)
+
+    wb = Workbook()
+
+    # ── Sheet 1: Summary ──────────────────────────────────────────────────────
+    ws = wb.active; ws.title = "Properties & Toxicity"
+    headers = ["Property", "Value", "Unit", "Status", "Description"]
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=ci, value=h)
+        c.fill = hf; c.font = hfont; c.alignment = ctr; c.border = thin
+    ws.row_dimensions[1].height = 24
+
+    # Identity rows
+    identity = [
+        ("Molecule Name", r.name or "Unnamed", "", "neutral", ""),
+        ("SMILES", r.smiles, "", "neutral", ""),
+        ("Formula", r.molecular_formula or "—", "", "neutral", ""),
+        ("Lipinski", "PASS" if r.lipinski.get("pass") else "FAIL", "", "good" if r.lipinski.get("pass") else "bad", f"{r.lipinski.get('violations',0)} violations"),
+    ]
+    row = 2
+    for name, val, unit, status, desc in identity:
+        fill = af if row % 2 == 0 else PatternFill("solid", fgColor="060D14")
+        for ci, v in enumerate([name, val, unit, status, desc], 1):
+            c = ws.cell(row=row, column=ci, value=v)
+            c.fill = fill; c.font = sf(status) if ci == 4 else wfont
+            c.alignment = ctr if ci != 2 else Alignment(horizontal="left", vertical="center")
+            c.border = thin
+        row += 1
+
+    # Properties
+    for p in r.properties:
+        fill = af if row % 2 == 0 else PatternFill("solid", fgColor="060D14")
+        for ci, v in enumerate([p.name, p.value, p.unit, p.status.upper(), p.description], 1):
+            c = ws.cell(row=row, column=ci, value=v)
+            c.fill = fill; c.font = sf(p.status) if ci == 4 else wfont
+            c.alignment = ctr if ci != 5 else Alignment(horizontal="left", vertical="center")
+            c.border = thin
+        row += 1
+
+    # Toxicity
+    for t in r.toxicity:
+        fill = af if row % 2 == 0 else PatternFill("solid", fgColor="060D14")
+        for ci, v in enumerate([t.endpoint, round(t.probability * 100, 1), "%", t.status.upper(), t.description], 1):
+            c = ws.cell(row=row, column=ci, value=v)
+            c.fill = fill; c.font = sf(t.status) if ci == 4 else wfont; c.alignment = ctr; c.border = thin
+        row += 1
+
+    for i, w in enumerate([28, 20, 12, 12, 50], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # ── Sheet 2: ADMET ────────────────────────────────────────────────────────
+    ws2 = wb.create_sheet("ADMET Profile")
+    admet_headers = ["Category", "Endpoint", "Value", "Unit", "Status", "Description"]
+    for ci, h in enumerate(admet_headers, 1):
+        c = ws2.cell(row=1, column=ci, value=h)
+        c.fill = hf; c.font = hfont; c.alignment = ctr; c.border = thin
+    ws2.row_dimensions[1].height = 24
+    for ri, a in enumerate(r.admet, 2):
+        fill = af if ri % 2 == 0 else PatternFill("solid", fgColor="060D14")
+        for ci, v in enumerate([a.category, a.endpoint, a.value, a.unit, a.status.upper(), a.description], 1):
+            c = ws2.cell(row=ri, column=ci, value=v)
+            c.fill = fill; c.font = sf(a.status) if ci == 5 else wfont; c.alignment = ctr; c.border = thin
+    for i, w in enumerate([16, 28, 12, 14, 12, 50], 1):
+        ws2.column_dimensions[get_column_letter(i)].width = w
+
+    # ── Sheet 3: Advanced Analysis ────────────────────────────────────────────
+    ws3 = wb.create_sheet("Advanced Analysis")
+    ws3.cell(row=1, column=1, value="ADVANCED ANALYSIS REPORT").font = Font(color="A78BFA", bold=True, size=12)
+    ws3.cell(row=1, column=1).fill = hf
+    ws3.merge_cells("A1:D1")
+    row3 = 3
+
+    # Scaffold
+    if req.scaffold and not req.scaffold.get("error"):
+        c = ws3.cell(row=row3, column=1, value="SCAFFOLD ANALYSIS")
+        c.font = Font(color="60A5FA", bold=True, size=10); c.fill = hf
+        ws3.merge_cells(f"A{row3}:D{row3}"); row3 += 1
+        scaffold_data = [
+            ("Murcko Scaffold", req.scaffold.get("murcko_scaffold","—")),
+            ("Framework", req.scaffold.get("carbon_scaffold","—")),
+            ("Ring Count", req.scaffold.get("ring_count","—")),
+            ("Ring Systems", ", ".join(req.scaffold.get("ring_systems",[]) or [])),
+        ]
+        for k, v in scaffold_data:
+            ws3.cell(row=row3, column=1, value=k).font = pfont
+            ws3.cell(row=row3, column=2, value=str(v)).font = wfont
+            row3 += 1
+        row3 += 1
+
+    # PAINS
+    if req.pains and not req.pains.get("error"):
+        c = ws3.cell(row=row3, column=1, value="PAINS FILTER")
+        c.font = Font(color="F87171", bold=True, size=10); c.fill = hf
+        ws3.merge_cells(f"A{row3}:D{row3}"); row3 += 1
+        alerts = req.pains.get("alerts", [])
+        ws3.cell(row=row3, column=1, value="Alert Count").font = pfont
+        ws3.cell(row=row3, column=2, value=len(alerts)).font = gfont if len(alerts)==0 else rfont
+        row3 += 1
+        ws3.cell(row=row3, column=1, value="Clean Compound").font = pfont
+        ws3.cell(row=row3, column=2, value="YES" if len(alerts)==0 else "NO").font = gfont if len(alerts)==0 else rfont
+        row3 += 1
+        for a in alerts:
+            ws3.cell(row=row3, column=1, value=a.get("name","")).font = rfont
+            ws3.cell(row=row3, column=2, value=a.get("smarts","")).font = wfont
+            row3 += 1
+        row3 += 1
+
+    # Targets
+    if req.targets and req.targets.get("predictions"):
+        c = ws3.cell(row=row3, column=1, value="TARGET PREDICTION")
+        c.font = Font(color="34D399", bold=True, size=10); c.fill = hf
+        ws3.merge_cells(f"A{row3}:D{row3}"); row3 += 1
+        for t in req.targets["predictions"][:10]:
+            ws3.cell(row=row3, column=1, value=t.get("target","")).font = gfont
+            ws3.cell(row=row3, column=2, value=t.get("family","")).font = wfont
+            ws3.cell(row=row3, column=3, value=t.get("confidence","")).font = wfont
+            row3 += 1
+        row3 += 1
+
+    # Lead Optimisation
+    if req.leadopt and not req.leadopt.get("error"):
+        c = ws3.cell(row=row3, column=1, value="LEAD OPTIMISATION")
+        c.font = Font(color="FCD34D", bold=True, size=10); c.fill = hf
+        ws3.merge_cells(f"A{row3}:D{row3}"); row3 += 1
+        ws3.cell(row=row3, column=1, value="QED Score").font = pfont
+        ws3.cell(row=row3, column=2, value=req.leadopt.get("qed_score","—")).font = wfont; row3 += 1
+        ws3.cell(row=row3, column=1, value="Issues").font = pfont
+        ws3.cell(row=row3, column=2, value=req.leadopt.get("issue_count", 0)).font = wfont; row3 += 1
+        ws3.cell(row=row3, column=1, value="Optimisation Potential").font = pfont
+        ws3.cell(row=row3, column=2, value=f"{req.leadopt.get('optimisation_potential',0)}%").font = wfont; row3 += 2
+
+        ws3.cell(row=row3, column=1, value="Suggestions").font = Font(color="A78BFA", bold=True, size=9)
+        row3 += 1
+        for s in (req.leadopt.get("suggestions") or []):
+            ws3.cell(row=row3, column=1, value=f"[{(s.get('priority','') or '').upper()}]").font = rfont if s.get('priority')=='high' else yfont
+            ws3.cell(row=row3, column=2, value=s.get("title","")).font = wfont
+            ws3.cell(row=row3, column=3, value=s.get("impact","")).font = Font(color="C4B5FD", size=9, italic=True)
+            row3 += 1
+        row3 += 1
+
+        if req.leadopt.get("bioisosteres"):
+            ws3.cell(row=row3, column=1, value="Bioisostere Replacements").font = Font(color="A78BFA", bold=True, size=9)
+            row3 += 1
+            for b in (req.leadopt.get("bioisosteres") or []):
+                ws3.cell(row=row3, column=1, value=b.get("original","")).font = rfont
+                ws3.cell(row=row3, column=2, value="→").font = wfont
+                ws3.cell(row=row3, column=3, value=b.get("replacement","")).font = gfont
+                ws3.cell(row=row3, column=4, value=b.get("reason","")).font = Font(color="C4B5FD", size=9, italic=True)
+                row3 += 1
+
+    for i, w in enumerate([28, 40, 20, 50], 1):
+        ws3.column_dimensions[get_column_letter(i)].width = w
+
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    name_safe = (req.name or "molecule").replace(" ", "_").lower()
+    return StreamingResponse(io.BytesIO(buf.read()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={name_safe}_molpredict.xlsx"})
+
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 async def _pubchem_name_to_smiles(client, query: str):
     """PubChem: name → SMILES"""

@@ -134,6 +134,311 @@ function Molecule3DViewer({ smiles, name }) {
 }
 
 
+// ── Ketcher Molecular Editor ───────────────────────────────────────────────────
+function KetcherEditor({ onSmilesChange, initialSmiles }) {
+  const iframeRef = React.useRef(null);
+  const [ready, setReady] = React.useState(false);
+  const [error, setError] = React.useState(false);
+
+  // Poll for Ketcher to be ready inside the iframe
+  React.useEffect(() => {
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts++;
+      try {
+        const ketcher = iframeRef.current?.contentWindow?.ketcher;
+        if (ketcher) {
+          setReady(true);
+          clearInterval(poll);
+          // Load initial SMILES if provided
+          if (initialSmiles) {
+            ketcher.setMolecule(initialSmiles).catch(() => {});
+          }
+        }
+      } catch(e) {}
+      if (attempts > 60) { clearInterval(poll); setError(true); }
+    }, 500);
+    return () => clearInterval(poll);
+  }, []);
+
+  // When initialSmiles changes from outside, push to ketcher
+  React.useEffect(() => {
+    if (!ready || !initialSmiles) return;
+    try {
+      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      if (ketcher) ketcher.setMolecule(initialSmiles).catch(() => {});
+    } catch(e) {}
+  }, [initialSmiles, ready]);
+
+  const getSmiles = async () => {
+    try {
+      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      if (!ketcher) return;
+      const smiles = await ketcher.getSmiles();
+      if (smiles && smiles.trim()) onSmilesChange(smiles.trim());
+    } catch(e) {
+      console.error("Ketcher SMILES error:", e);
+    }
+  };
+
+  const clearEditor = () => {
+    try {
+      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      if (ketcher) ketcher.setMolecule("");
+    } catch(e) {}
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(167,139,250,0.3)", boxShadow: "0 4px 24px rgba(0,0,0,0.4)" }}>
+        {!ready && !error && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(10,4,30,0.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, zIndex: 10, borderRadius: 12 }}>
+            <div style={{ width: 44, height: 44, border: "3px solid rgba(124,58,237,0.3)", borderTop: "3px solid #a855f7", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+            <div style={{ color: "#c4b5fd", fontFamily: "Arial,sans-serif", fontSize: 13 }}>Loading Ketcher editor…</div>
+          </div>
+        )}
+        {error && (
+          <div style={{ height: 400, background: "rgba(10,4,30,0.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, borderRadius: 12 }}>
+            <div style={{ fontSize: 36 }}>⚗️</div>
+            <div style={{ color: "#f87171", fontFamily: "Arial,sans-serif", fontSize: 13, textAlign: "center" }}>
+              Ketcher editor could not load.<br/>
+              <span style={{ fontSize: 11, color: "#a78bfa" }}>Try refreshing or use the SMILES input directly.</span>
+            </div>
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          src="https://lifescience.opensource.epam.com/KetcherDemoSPA/index.html"
+          style={{ width: "100%", height: 480, border: "none", display: "block", background: "#fff" }}
+          title="Ketcher Molecular Editor"
+          onError={() => setError(true)}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button
+          onClick={getSmiles}
+          disabled={!ready}
+          style={{ background: ready ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(60,20,100,0.3)", border: "none", borderRadius: 10, padding: "12px 28px", color: "#fff", fontFamily: "Arial,sans-serif", fontSize: 14, fontWeight: 700, cursor: ready ? "pointer" : "not-allowed", boxShadow: ready ? "0 4px 16px rgba(124,58,237,0.4)" : "none", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s" }}>
+          ⬇ Use This Structure
+        </button>
+        <button
+          onClick={clearEditor}
+          disabled={!ready}
+          style={{ background: "transparent", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 10, padding: "12px 20px", color: "#a78bfa", fontFamily: "Arial,sans-serif", fontSize: 13, cursor: ready ? "pointer" : "not-allowed" }}>
+          🗑 Clear
+        </button>
+        {!ready && !error && (
+          <span style={{ alignSelf: "center", fontSize: 12, color: "#a78bfa", fontFamily: "Arial,sans-serif" }}>⏳ Loading editor…</span>
+        )}
+        {ready && (
+          <span style={{ alignSelf: "center", fontSize: 12, color: "#34d399", fontFamily: "Arial,sans-serif" }}>✓ Editor ready — draw your molecule, then click "Use This Structure"</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ── AI Chat Assistant ──────────────────────────────────────────────────────────
+function AIChatAssistant({ moleculeData, scaffoldResult, painsResult, targetsResult, leadoptResult }) {
+  const [messages, setMessages] = React.useState([]);
+  const [input, setInput] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const messagesEndRef = React.useRef(null);
+
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  React.useEffect(scrollToBottom, [messages]);
+
+  const SUGGESTIONS = [
+    "Explain this molecule's drug-likeness in plain English",
+    "What are the biggest concerns with this molecule?",
+    "Compare this to known drugs with similar properties",
+    "Suggest 3 structural modifications to improve bioavailability",
+    "What pharmacophore features does this molecule have?",
+    "What therapeutic targets could this molecule hit?",
+    "How does the ADMET profile compare to approved oral drugs?",
+    "What toxicity alerts should I be concerned about?",
+  ];
+
+  const buildSystemPrompt = () => {
+    if (!moleculeData) return "You are an expert medicinal chemist and drug discovery scientist. Answer questions concisely and helpfully.";
+
+    const props = moleculeData.properties?.map(p => `${p.name}: ${p.value} ${p.unit} (${p.status})`).join(", ") || "";
+    const tox = moleculeData.toxicity?.map(t => `${t.endpoint}: ${Math.round(t.probability*100)}% (${t.status})`).join(", ") || "";
+    const admet = moleculeData.admet?.map(a => `${a.endpoint}: ${a.value} ${a.unit} (${a.status})`).join(", ") || "";
+    const pains = painsResult?.alerts?.length ? `PAINS alerts: ${painsResult.alerts.map(a => a.name).join(", ")}` : "No PAINS alerts detected";
+    const targets = targetsResult?.predictions?.slice(0,5).map(t => `${t.target} (${t.family})`).join(", ") || "";
+    const scaffold = scaffoldResult?.murcko_scaffold ? `Murcko scaffold: ${scaffoldResult.murcko_scaffold}` : "";
+    const leadopt = leadoptResult?.suggestions?.slice(0,3).map(s => s.title).join("; ") || "";
+
+    return `You are an expert medicinal chemist and drug discovery scientist. You are analyzing a specific molecule and answering questions about it.
+
+MOLECULE DATA:
+- Name: ${moleculeData.name || "Unnamed"}
+- SMILES: ${moleculeData.smiles}
+- Formula: ${moleculeData.molecular_formula || "Unknown"}
+- Lipinski: ${moleculeData.lipinski?.pass ? "PASS" : "FAIL"} (${moleculeData.lipinski?.violations} violations)
+- Properties: ${props}
+- Toxicity estimates: ${tox}
+- ADMET: ${admet}
+- ${pains}
+- Predicted targets: ${targets || "Not yet analyzed"}
+- ${scaffold}
+- Lead opt suggestions: ${leadopt || "Not yet analyzed"}
+
+INSTRUCTIONS:
+- Be concise but insightful. Use markdown formatting.
+- Reference specific numbers from the data when relevant.
+- When comparing to known drugs, use real examples.
+- For pharmacophore modeling, describe key features (HBA, HBD, aromatic rings, hydrophobic regions, charges).
+- Always distinguish computational predictions from experimental facts.
+- Keep responses to ~200-400 words unless the question demands more detail.`;
+  };
+
+  const sendMessage = async (text) => {
+    const userMsg = text || input.trim();
+    if (!userMsg) return;
+    setInput("");
+    const newMessages = [...messages, { role: "user", content: userMsg }];
+    setMessages(newMessages);
+    setLoading(true);
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: buildSystemPrompt(),
+          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await response.json();
+      const reply = data.content?.[0]?.text || "Sorry, I couldn't generate a response.";
+      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+    } catch(e) {
+      setMessages(prev => [...prev, { role: "assistant", content: "⚠ Connection error. Please try again." }]);
+    }
+    setLoading(false);
+  };
+
+  const renderMarkdown = (text) => {
+    // Simple markdown renderer for bold, italic, code, bullets
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e2d9f3">$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em style="color:#c4b5fd">$1</em>')
+      .replace(/`(.+?)`/g, '<code style="background:rgba(124,58,237,0.2);padding:1px 6px;border-radius:4px;font-family:monospace;font-size:12px;color:#a78bfa">$1</code>')
+      .replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:700;color:#e2d9f3;margin:10px 0 4px">$1</div>')
+      .replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:700;color:#f0eaff;margin:12px 0 6px">$1</div>')
+      .replace(/^- (.+)$/gm, '<div style="display:flex;gap:8px;margin:3px 0"><span style="color:#a78bfa;flex-shrink:0">•</span><span>$1</span></div>')
+      .replace(/^\d+\. (.+)$/gm, (m, p1, offset, str) => `<div style="display:flex;gap:8px;margin:3px 0"><span style="color:#a78bfa;flex-shrink:0">${m.match(/^\d+/)[0]}.</span><span>${p1}</span></div>`)
+      .replace(/\n\n/g, '<br/><br/>')
+      .replace(/\n/g, '<br/>');
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: 600, background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, backdropFilter: "blur(12px)", boxShadow: T.shadow, overflow: "hidden" }}>
+
+      {/* Header */}
+      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, background: "linear-gradient(135deg,rgba(124,58,237,0.15),rgba(168,85,247,0.08))", display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#7c3aed,#a855f7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, boxShadow: "0 4px 12px rgba(124,58,237,0.4)" }}>🤖</div>
+        <div>
+          <div style={{ fontFamily: "Arial,sans-serif", fontSize: 15, fontWeight: 700, color: T.text }}>MolPredict AI</div>
+          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>
+            {moleculeData ? `Analyzing: ${moleculeData.name || moleculeData.smiles?.slice(0,30) + "…"}` : "Load a molecule first to unlock full analysis"}
+          </div>
+        </div>
+        {messages.length > 0 && (
+          <button onClick={() => setMessages([])} style={{ marginLeft: "auto", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "5px 12px", color: "#f87171", fontSize: 11, cursor: "pointer", fontFamily: "Arial,sans-serif" }}>
+            Clear chat
+          </button>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {messages.length === 0 && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            {!moleculeData ? (
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <div style={{ fontSize: 44, marginBottom: 12, opacity: 0.5 }}>🧬</div>
+                <div style={{ fontFamily: "Arial,sans-serif", fontSize: 14, color: T.textMuted, marginBottom: 6 }}>No molecule loaded</div>
+                <div style={{ fontFamily: "Arial,sans-serif", fontSize: 12, color: "rgba(167,139,250,0.5)" }}>Analyze a molecule in Single Molecule mode first,<br/>then come back here to chat about it.</div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontFamily: "Arial,sans-serif", fontSize: 13, color: T.textMuted, marginBottom: 14, textAlign: "center" }}>
+                  💡 Ask anything about this molecule, or try a suggestion:
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                  {SUGGESTIONS.map((s, i) => (
+                    <button key={i} onClick={() => sendMessage(s)}
+                      style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 99, padding: "7px 14px", color: "#c4b5fd", fontSize: 12, cursor: "pointer", fontFamily: "Arial,sans-serif", transition: "all 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(124,58,237,0.25)"; e.currentTarget.style.borderColor = T.accent; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "rgba(124,58,237,0.1)"; e.currentTarget.style.borderColor = "rgba(167,139,250,0.3)"; }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {messages.map((msg, i) => (
+          <div key={i} style={{ display: "flex", gap: 10, flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-start" }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14,
+              background: msg.role === "user" ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(124,58,237,0.15)",
+              border: msg.role === "assistant" ? "1px solid rgba(124,58,237,0.3)" : "none" }}>
+              {msg.role === "user" ? "👤" : "🤖"}
+            </div>
+            <div style={{ maxWidth: "80%", background: msg.role === "user" ? "linear-gradient(135deg,rgba(124,58,237,0.3),rgba(168,85,247,0.2))" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${msg.role === "user" ? "rgba(167,139,250,0.4)" : "rgba(255,255,255,0.08)"}`,
+              borderRadius: msg.role === "user" ? "14px 4px 14px 14px" : "4px 14px 14px 14px",
+              padding: "10px 14px", fontSize: 13, color: T.text, fontFamily: "Arial,sans-serif", lineHeight: 1.7 }}>
+              {msg.role === "assistant"
+                ? <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                : msg.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>🤖</div>
+            <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "4px 14px 14px 14px", padding: "12px 16px", display: "flex", gap: 5, alignItems: "center" }}>
+              {[0,1,2].map(i => (
+                <div key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "#a78bfa", animation: `bounce${i} 1.2s ease-in-out infinite`, animationDelay: `${i*0.2}s` }} />
+              ))}
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "12px 16px", borderTop: `1px solid ${T.border}`, background: "rgba(10,4,30,0.4)", display: "flex", gap: 10 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          placeholder={moleculeData ? "Ask about this molecule…" : "Load a molecule first…"}
+          disabled={!moleculeData || loading}
+          style={{ flex: 1, background: "rgba(255,255,255,0.07)", border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", color: T.text, fontFamily: "Arial,sans-serif", fontSize: 13, outline: "none" }}
+          onFocus={e => e.target.style.borderColor = T.accent}
+          onBlur={e => e.target.style.borderColor = T.border}
+        />
+        <button onClick={() => sendMessage()} disabled={!input.trim() || loading || !moleculeData}
+          style={{ background: (input.trim() && !loading && moleculeData) ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(60,20,100,0.3)", border: "none", borderRadius: 10, width: 42, height: 42, display: "flex", alignItems: "center", justifyContent: "center", cursor: (input.trim() && !loading && moleculeData) ? "pointer" : "not-allowed", fontSize: 18, transition: "all 0.2s", boxShadow: (input.trim() && !loading && moleculeData) ? "0 4px 12px rgba(124,58,237,0.4)" : "none" }}>
+          ➤
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Animated Molecular Background ─────────────────────────────────────────────
 function MolecularBackground() {
   useEffect(() => {
@@ -718,6 +1023,7 @@ export default function App() {
   const [simSources, setSimSources] = useState([]);
   const [simThreshold, setSimThreshold] = useState(0.7);
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [xlsxExporting, setXlsxExporting] = useState(false);
   // Advanced Analysis state
   const [advTab, setAdvTab] = useState("scaffold");
   const [advSmiles, setAdvSmiles] = useState("");
@@ -728,6 +1034,8 @@ export default function App() {
   const [leadoptResult, setLeadoptResult] = useState(null);
   const [advError, setAdvError] = useState(null);
   const [batchSmiles, setBatchSmiles] = useState("");
+  const [inputMode, setInputMode] = useState("smiles"); // "smiles" | "draw"
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     // Load jsPDF for PDF export
@@ -1044,6 +1352,127 @@ export default function App() {
       }
 
       // ── Footer on every page ──────────────────────────────────────────────
+      // ── Section 4: Advanced Analysis ─────────────────────────────────────
+      const hasAdvanced = scaffoldResult || painsResult || targetsResult || leadoptResult;
+      if (hasAdvanced) {
+        newPage();
+        sectionHeader("4.  ADVANCED ANALYSIS", [30, 64, 175]);
+
+        // Scaffold
+        if (scaffoldResult && !scaffoldResult.error) {
+          checkPage(16);
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.setTextColor(109, 40, 217);
+          doc.text("▸ SCAFFOLD ANALYSIS", M, y); y += 7;
+
+          if (scaffoldResult.murcko_scaffold) {
+            doc.setFillColor(245, 243, 255); doc.setDrawColor(167, 139, 250); doc.setLineWidth(0.3);
+            doc.roundedRect(M, y, CW, 10, 2, 2, "FD");
+            doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(60, 20, 120);
+            doc.text(`Murcko Scaffold: ${scaffoldResult.murcko_scaffold?.slice(0,80) || "—"}`, M+4, y+6.5);
+            y += 14;
+          }
+          if (scaffoldResult.ring_systems?.length > 0) {
+            doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+            doc.text(`Ring systems: ${scaffoldResult.ring_systems.join(", ")}`, M, y); y += 6;
+          }
+          y += 6;
+        }
+
+        // PAINS
+        if (painsResult && !painsResult.error) {
+          checkPage(20);
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.setTextColor(190, 18, 60);
+          doc.text("▸ PAINS FILTER", M, y); y += 7;
+
+          const pCount = painsResult.alerts?.length || 0;
+          const pColor = pCount === 0 ? [21, 128, 61] : [190, 18, 60];
+          const pFill  = pCount === 0 ? [232, 255, 240] : [255, 241, 242];
+          const pBorder= pCount === 0 ? [74, 222, 128] : [251, 113, 133];
+
+          doc.setFillColor(...pFill); doc.setDrawColor(...pBorder); doc.setLineWidth(0.3);
+          doc.roundedRect(M, y, CW, 10, 2, 2, "FD");
+          doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(...pColor);
+          doc.text(pCount === 0 ? "✓ No PAINS alerts detected — clean compound" : `✗ ${pCount} PAINS alert(s) detected — review before screening`, M+4, y+6.5);
+          y += 14;
+
+          if (painsResult.alerts?.length > 0) {
+            painsResult.alerts.forEach(a => {
+              checkPage(8);
+              doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+              doc.text(`• ${a.name}: ${a.smarts || ""}`, M+4, y); y += 6;
+            });
+          }
+          y += 6;
+        }
+
+        // Target Prediction
+        if (targetsResult?.predictions?.length > 0) {
+          checkPage(20);
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.setTextColor(5, 95, 70);
+          doc.text("▸ TARGET PREDICTION", M, y); y += 7;
+
+          const topTargets = targetsResult.predictions.slice(0, 6);
+          const tCols = 2; const tCardW = CW / tCols - 2; const tCardH = 16;
+          topTargets.forEach((t, i) => {
+            const col = i % tCols;
+            const px = M + col * (CW / tCols);
+            if (col === 0 && i > 0) { y += tCardH + 3; }
+            checkPage(tCardH + 3);
+            doc.setFillColor(240, 253, 244); doc.setDrawColor(74, 222, 128); doc.setLineWidth(0.3);
+            doc.roundedRect(px, y, tCardW, tCardH, 2, 2, "FD");
+            doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(21, 128, 61);
+            doc.text(t.target?.slice(0, 35) || "Unknown", px+3, y+6);
+            doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+            doc.text(`Family: ${t.family || "—"}  |  Confidence: ${t.confidence || "—"}`, px+3, y+11.5);
+          });
+          y += tCardH + 12;
+        }
+
+        // Lead Optimisation
+        if (leadoptResult && !leadoptResult.error) {
+          checkPage(20);
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.setTextColor(146, 64, 14);
+          doc.text("▸ LEAD OPTIMISATION", M, y); y += 7;
+
+          if (leadoptResult.qed_score !== undefined) {
+            doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+            doc.text(`QED Score: ${leadoptResult.qed_score}  |  Issues: ${leadoptResult.issue_count}  |  Optimisation potential: ${leadoptResult.optimisation_potential}%`, M, y); y += 8;
+          }
+
+          if (leadoptResult.suggestions?.length > 0) {
+            leadoptResult.suggestions.slice(0, 5).forEach(s => {
+              checkPage(12);
+              const sColor = s.priority === "high" ? [190, 18, 60] : s.priority === "medium" ? [146, 64, 14] : [109, 40, 217];
+              const sFill  = s.priority === "high" ? [255, 241, 242] : s.priority === "medium" ? [255, 251, 235] : [245, 243, 255];
+              const sBorder= s.priority === "high" ? [251, 113, 133] : s.priority === "medium" ? [251, 191, 36] : [167, 139, 250];
+              doc.setFillColor(...sFill); doc.setDrawColor(...sBorder); doc.setLineWidth(0.3);
+              doc.roundedRect(M, y, CW, 12, 2, 2, "FD");
+              doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(...sColor);
+              doc.text(`[${(s.priority||"").toUpperCase()}] ${s.title || ""}`, M+4, y+5.5);
+              doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+              doc.text(s.impact || "", M+4, y+9.5);
+              y += 15;
+            });
+          }
+
+          if (leadoptResult.bioisosteres?.length > 0) {
+            checkPage(10);
+            doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(109, 40, 217);
+            doc.text("Bioisostere suggestions:", M, y); y += 7;
+            leadoptResult.bioisosteres.forEach(b => {
+              checkPage(8);
+              doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+              doc.text(`• ${b.original} → ${b.replacement}: ${b.reason}`, M+4, y, { maxWidth: CW - 8 }); y += 7;
+            });
+          }
+        }
+      }
+
+      // ── Footer on every page ──────────────────────────────────────────────
       const totalPages = doc.internal.getNumberOfPages();
       for (let p = 1; p <= totalPages; p++) {
         doc.setPage(p);
@@ -1061,6 +1490,35 @@ export default function App() {
     finally { setPdfExporting(false); }
   };
 
+  const exportExcel = async () => {
+    if (!result) return;
+    setXlsxExporting(true);
+    try {
+      const payload = {
+        smiles: result.smiles,
+        name: result.name || null,
+        scaffold: scaffoldResult || null,
+        pains: painsResult || null,
+        targets: targetsResult || null,
+        leadopt: leadoptResult || null,
+      };
+      const res = await fetch(`${API}/export/single`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(result.name || "molecule").replace(/\s+/g,"_").toLowerCase()}_molpredict.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { alert("Excel export failed: " + e.message); }
+    finally { setXlsxExporting(false); }
+  };
+
   return (
     <div style={{ minHeight: "100vh", color: T.text, fontFamily: "'Lato', sans-serif", padding: "0 0 80px", position: "relative", overflow: "hidden" }}>
 
@@ -1073,6 +1531,9 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: #c4b5fd; border-radius: 3px; }
         @keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
         @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+        @keyframes bounce0 { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+        @keyframes bounce1 { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+        @keyframes bounce2 { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
       `}</style>
 
       {/* Animated molecular background */}
@@ -1110,8 +1571,8 @@ export default function App() {
         </div>
 
         {/* Main tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 28, background: "rgba(255,255,255,0.7)", borderRadius: T.radius, padding: 5, width: "fit-content", border: `1px solid ${T.border}`, backdropFilter: "blur(8px)", boxShadow: T.shadow }}>
-          {[["single","⬡ Single Molecule"],["batch","⊞ Batch Screening"],["advanced","🔬 Advanced Analysis"]].map(([key, label]) => (
+        <div style={{ display: "flex", gap: 6, marginBottom: 28, background: "rgba(255,255,255,0.7)", borderRadius: T.radius, padding: 5, width: "fit-content", border: `1px solid ${T.border}`, backdropFilter: "blur(8px)", boxShadow: T.shadow, flexWrap: "wrap" }}>
+          {[["single","⬡ Single Molecule"],["batch","⊞ Batch Screening"],["advanced","🔬 Advanced Analysis"],["aichat","🤖 AI Chat"]].map(([key, label]) => (
             <TabBtn key={key} active={mainTab===key} onClick={() => setMainTab(key)}>{label}</TabBtn>
           ))}
         </div>
@@ -1146,30 +1607,74 @@ export default function App() {
             </div>
 
             <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 30, marginBottom: 24, boxShadow: T.shadow, backdropFilter: "blur(12px)", animation: "fadeUp 0.5s ease 0.1s both" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, marginBottom: 18 }}>
-                <div>
-                  <label style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, display: "block", marginBottom: 7 }}>SMILES String *</label>
-                  <input value={smiles} onChange={e => setSmiles(e.target.value)} onKeyDown={e => e.key==="Enter" && predict()}
-                    placeholder="e.g. CC(=O)Oc1ccccc1C(=O)O"
-                    style={{ ...inputStyle, fontFamily: "'Courier Prime', monospace" }}
-                    onFocus={e => { e.target.style.borderColor=T.borderFocus; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.12)"; }}
-                    onBlur={e => { e.target.style.borderColor=T.border; e.target.style.boxShadow="0 1px 4px rgba(124,58,237,0.06)"; }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, display: "block", marginBottom: 7 }}>Name (optional)</label>
-                  <input value={molName} onChange={e => setMolName(e.target.value)} placeholder="e.g. Aspirin"
-                    style={{ ...inputStyle, width: 190 }}
-                    onFocus={e => { e.target.style.borderColor=T.borderFocus; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.12)"; }}
-                    onBlur={e => { e.target.style.borderColor=T.border; e.target.style.boxShadow="0 1px 4px rgba(124,58,237,0.06)"; }} />
-                </div>
+              {/* Input mode toggle */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 20, background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: 4, width: "fit-content", border: `1px solid ${T.border}` }}>
+                {[["smiles","✍ SMILES"],["draw","🎨 Draw Molecule"]].map(([mode, label]) => (
+                  <button key={mode} onClick={() => setInputMode(mode)}
+                    style={{ background: inputMode===mode ? T.grad : "transparent", border: "none", borderRadius: 8, padding: "7px 18px", color: inputMode===mode ? "#fff" : T.textMuted, fontFamily: "Arial,sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.2s", boxShadow: inputMode===mode ? "0 2px 10px rgba(124,58,237,0.3)" : "none" }}>
+                    {label}
+                  </button>
+                ))}
               </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={predict} disabled={loading||!smiles.trim()} style={{ background: smiles.trim()?T.grad:"#e5e7eb", border:"none", borderRadius:T.radiusSm, padding:"11px 30px", color:smiles.trim()?"#fff":"#9ca3af", fontFamily:"'Lato', sans-serif", fontSize:14, fontWeight:700, cursor:smiles.trim()?"pointer":"not-allowed", display:"flex", alignItems:"center", gap:9, boxShadow:smiles.trim()?"0 4px 14px rgba(124,58,237,0.3)":"none", transition:"all 0.2s" }}>
-                  {loading && <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>}
-                  {loading?"Analyzing...":"Analyze Molecule"}
-                </button>
-                {smiles && <button onClick={() => { setSmiles(""); setMolName(""); setResult(null); setError(null); }} style={{ background:"transparent", border:`1.5px solid ${T.border}`, borderRadius:T.radiusSm, padding:"11px 20px", color:T.textMuted, fontSize:13, cursor:"pointer", fontFamily:"'Lato', sans-serif" }}>Clear</button>}
-              </div>
+
+              {inputMode === "smiles" && (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14, marginBottom: 18 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, display: "block", marginBottom: 7 }}>SMILES String *</label>
+                      <input value={smiles} onChange={e => setSmiles(e.target.value)} onKeyDown={e => e.key==="Enter" && predict()}
+                        placeholder="e.g. CC(=O)Oc1ccccc1C(=O)O"
+                        style={{ ...inputStyle, fontFamily: "'Courier Prime', monospace" }}
+                        onFocus={e => { e.target.style.borderColor=T.borderFocus; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.12)"; }}
+                        onBlur={e => { e.target.style.borderColor=T.border; e.target.style.boxShadow="0 1px 4px rgba(124,58,237,0.06)"; }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, display: "block", marginBottom: 7 }}>Name (optional)</label>
+                      <input value={molName} onChange={e => setMolName(e.target.value)} placeholder="e.g. Aspirin"
+                        style={{ ...inputStyle, width: 190 }}
+                        onFocus={e => { e.target.style.borderColor=T.borderFocus; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.12)"; }}
+                        onBlur={e => { e.target.style.borderColor=T.border; e.target.style.boxShadow="0 1px 4px rgba(124,58,237,0.06)"; }} />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={predict} disabled={loading||!smiles.trim()} style={{ background: smiles.trim()?T.grad:"#e5e7eb", border:"none", borderRadius:T.radiusSm, padding:"11px 30px", color:smiles.trim()?"#fff":"#9ca3af", fontFamily:"'Lato', sans-serif", fontSize:14, fontWeight:700, cursor:smiles.trim()?"pointer":"not-allowed", display:"flex", alignItems:"center", gap:9, boxShadow:smiles.trim()?"0 4px 14px rgba(124,58,237,0.3)":"none", transition:"all 0.2s" }}>
+                      {loading && <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>}
+                      {loading?"Analyzing...":"Analyze Molecule"}
+                    </button>
+                    {smiles && <button onClick={() => { setSmiles(""); setMolName(""); setResult(null); setError(null); }} style={{ background:"transparent", border:`1.5px solid ${T.border}`, borderRadius:T.radiusSm, padding:"11px 20px", color:T.textMuted, fontSize:13, cursor:"pointer", fontFamily:"'Lato', sans-serif" }}>Clear</button>}
+                  </div>
+                </>
+              )}
+
+              {inputMode === "draw" && (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: 11, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "'Lato', sans-serif", fontWeight: 700, display: "block", marginBottom: 4 }}>Name (optional)</label>
+                    <input value={molName} onChange={e => setMolName(e.target.value)} placeholder="e.g. My Compound"
+                      style={{ ...inputStyle, maxWidth: 300 }}
+                      onFocus={e => { e.target.style.borderColor=T.borderFocus; e.target.style.boxShadow="0 0 0 3px rgba(124,58,237,0.12)"; }}
+                      onBlur={e => { e.target.style.borderColor=T.border; e.target.style.boxShadow="0 1px 4px rgba(124,58,237,0.06)"; }} />
+                  </div>
+                  <KetcherEditor
+                    initialSmiles={smiles}
+                    onSmilesChange={(s) => {
+                      setSmiles(s);
+                      setResult(null); setError(null);
+                    }}
+                  />
+                  {smiles && (
+                    <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ background: "rgba(124,58,237,0.1)", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 8, padding: "8px 14px", fontFamily: "'Courier Prime',monospace", fontSize: 12, color: "#c4b5fd", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {smiles}
+                      </div>
+                      <button onClick={predict} disabled={loading||!smiles.trim()} style={{ background: smiles.trim()?T.grad:"#e5e7eb", border:"none", borderRadius:T.radiusSm, padding:"11px 24px", color:smiles.trim()?"#fff":"#9ca3af", fontFamily:"'Lato', sans-serif", fontSize:14, fontWeight:700, cursor:smiles.trim()?"pointer":"not-allowed", display:"flex", alignItems:"center", gap:9, boxShadow:smiles.trim()?"0 4px 14px rgba(124,58,237,0.3)":"none", flexShrink: 0 }}>
+                        {loading && <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>}
+                        {loading?"Analyzing...":"Analyze Molecule"}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {examples.length > 0 && (
@@ -1198,12 +1703,16 @@ export default function App() {
                       style={{ background: "linear-gradient(135deg, #7c2d12, #b45309)", border: "none", borderRadius: 99, padding: "8px 18px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, boxShadow: "0 4px 12px rgba(180,83,9,0.3)" }}>
                       {pdfExporting ? "⏳ Exporting..." : "📄 Export PDF"}
                     </button>
+                    <button onClick={exportExcel} disabled={xlsxExporting}
+                      style={{ background: "linear-gradient(135deg, #065f46, #047857)", border: "none", borderRadius: 99, padding: "8px 18px", color: "#fff", fontFamily: "Arial, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, boxShadow: "0 4px 12px rgba(4,120,87,0.3)" }}>
+                      {xlsxExporting ? "⏳ Exporting..." : "⬇ Export Excel"}
+                    </button>
                   </div>
                 </div>
 
                 {/* Result tabs */}
-                <div style={{ display:"flex", gap:6, marginBottom:20, background:"rgba(255,255,255,0.7)", borderRadius:T.radius, padding:5, width:"fit-content", border:`1px solid ${T.border}`, backdropFilter:"blur(8px)" }}>
-                  {[["properties","⚗ Properties"],["toxicity","⚠ Toxicity"],["admet","📊 ADMET"],["similarity","🔗 Similarity"],["structure","🔬 Structure"]].map(([key,label]) => (
+                <div style={{ display:"flex", gap:6, marginBottom:20, background:"rgba(255,255,255,0.7)", borderRadius:T.radius, padding:5, width:"fit-content", border:`1px solid ${T.border}`, backdropFilter:"blur(8px)", flexWrap:"wrap" }}>
+                  {[["properties","⚗ Properties"],["toxicity","⚠ Toxicity"],["admet","📊 ADMET"],["similarity","🔗 Similarity"],["structure","🔬 Structure"],["chat","🤖 AI Chat"]].map(([key,label]) => (
                     <TabBtn key={key} active={resultTab===key} onClick={() => setResultTab(key)}>{label}</TabBtn>
                   ))}
                 </div>
@@ -1372,6 +1881,16 @@ export default function App() {
                   </div>
                 )}
 
+                {resultTab==="chat" && (
+                  <AIChatAssistant
+                    moleculeData={result}
+                    scaffoldResult={scaffoldResult}
+                    painsResult={painsResult}
+                    targetsResult={targetsResult}
+                    leadoptResult={leadoptResult}
+                  />
+                )}
+
                 <div style={{ marginTop:24, padding:"14px 18px", background:"rgba(255,255,255,0.08)", borderRadius:T.radiusSm, fontSize:12, color:"rgba(255,255,255,0.7)", fontFamily:"'Lato', sans-serif", border:"1px solid rgba(255,255,255,0.15)" }}>
                   ⚠ Computational predictions only. Properties computed using RDKit. QED from Bickerton et al. (2012).
                 </div>
@@ -1388,6 +1907,25 @@ export default function App() {
         )}
 
         {mainTab==="batch" && <BatchScreen />}
+
+        {mainTab==="aichat" && (
+          <div style={{ animation: "fadeUp 0.5s ease both" }}>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: T.text, marginBottom: 6 }}>🤖 AI Drug Discovery Assistant</div>
+              <div style={{ fontSize: 13, color: T.textMuted, fontFamily: "Arial,sans-serif", lineHeight: 1.6 }}>
+                Powered by Claude. Ask anything about your molecule — drug-likeness, pharmacophore features, structural improvements, target predictions, comparison with known drugs, and more.
+                {!result && <span style={{ color: "#f87171" }}> Analyze a molecule in Single Molecule mode first to unlock molecule-specific insights.</span>}
+              </div>
+            </div>
+            <AIChatAssistant
+              moleculeData={result}
+              scaffoldResult={scaffoldResult}
+              painsResult={painsResult}
+              targetsResult={targetsResult}
+              leadoptResult={leadoptResult}
+            />
+          </div>
+        )}
 
         {/* ── Advanced Analysis Panel ─────────────────────────────── */}
         {mainTab==="advanced" && (
