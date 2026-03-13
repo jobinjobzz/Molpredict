@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Union, List
-import io, httpx, asyncio
+import io, httpx, asyncio, os
 
 # RDKit imports at top level
 try:
@@ -1427,3 +1427,47 @@ async def lead_optimisation(req: AdvancedRequest):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── AI Chat Proxy ───────────────────────────────────────────────────────────────
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    system: Optional[str] = None
+
+@app.post("/ai/chat")
+async def ai_chat(req: ChatRequest):
+    """Proxy to Anthropic API — keeps API key server-side"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return JSONResponse(status_code=500, content={"error": "ANTHROPIC_API_KEY not set on server"})
+
+    payload = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 1000,
+        "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+    }
+    if req.system:
+        payload["system"] = req.system
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            )
+            data = r.json()
+            if r.status_code != 200:
+                return JSONResponse(status_code=r.status_code, content={"error": data.get("error", {}).get("message", "API error")})
+            text = data.get("content", [{}])[0].get("text", "")
+            return {"reply": text}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})

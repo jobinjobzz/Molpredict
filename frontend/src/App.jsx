@@ -135,44 +135,47 @@ function Molecule3DViewer({ smiles, name }) {
 
 
 // ── Ketcher Molecular Editor ───────────────────────────────────────────────────
+// Uses the standalone Ketcher build hosted on the official CDN
+const KETCHER_URL = "https://unpkg.com/ketcher-standalone@2.7.2/dist/standalone/index.html";
+
 function KetcherEditor({ onSmilesChange, initialSmiles }) {
   const iframeRef = React.useRef(null);
   const [ready, setReady] = React.useState(false);
   const [error, setError] = React.useState(false);
 
-  // Poll for Ketcher to be ready inside the iframe
   React.useEffect(() => {
     let attempts = 0;
     const poll = setInterval(() => {
       attempts++;
       try {
-        const ketcher = iframeRef.current?.contentWindow?.ketcher;
-        if (ketcher) {
+        const win = iframeRef.current?.contentWindow;
+        const ketcher = win?.ketcher || win?.document?.ketcher;
+        if (ketcher && typeof ketcher.getSmiles === "function") {
           setReady(true);
           clearInterval(poll);
-          // Load initial SMILES if provided
           if (initialSmiles) {
-            ketcher.setMolecule(initialSmiles).catch(() => {});
+            setTimeout(() => ketcher.setMolecule(initialSmiles).catch(() => {}), 300);
           }
         }
       } catch(e) {}
-      if (attempts > 60) { clearInterval(poll); setError(true); }
+      if (attempts > 80) { clearInterval(poll); setError(true); }
     }, 500);
     return () => clearInterval(poll);
   }, []);
 
-  // When initialSmiles changes from outside, push to ketcher
   React.useEffect(() => {
     if (!ready || !initialSmiles) return;
     try {
-      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      const win = iframeRef.current?.contentWindow;
+      const ketcher = win?.ketcher || win?.document?.ketcher;
       if (ketcher) ketcher.setMolecule(initialSmiles).catch(() => {});
     } catch(e) {}
   }, [initialSmiles, ready]);
 
   const getSmiles = async () => {
     try {
-      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      const win = iframeRef.current?.contentWindow;
+      const ketcher = win?.ketcher || win?.document?.ketcher;
       if (!ketcher) return;
       const smiles = await ketcher.getSmiles();
       if (smiles && smiles.trim()) onSmilesChange(smiles.trim());
@@ -183,7 +186,8 @@ function KetcherEditor({ onSmilesChange, initialSmiles }) {
 
   const clearEditor = () => {
     try {
-      const ketcher = iframeRef.current?.contentWindow?.ketcher;
+      const win = iframeRef.current?.contentWindow;
+      const ketcher = win?.ketcher || win?.document?.ketcher;
       if (ketcher) ketcher.setMolecule("");
     } catch(e) {}
   };
@@ -195,6 +199,7 @@ function KetcherEditor({ onSmilesChange, initialSmiles }) {
           <div style={{ position: "absolute", inset: 0, background: "rgba(10,4,30,0.92)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, zIndex: 10, borderRadius: 12 }}>
             <div style={{ width: 44, height: 44, border: "3px solid rgba(124,58,237,0.3)", borderTop: "3px solid #a855f7", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
             <div style={{ color: "#c4b5fd", fontFamily: "Arial,sans-serif", fontSize: 13 }}>Loading Ketcher editor…</div>
+            <div style={{ color: "rgba(167,139,250,0.5)", fontFamily: "Arial,sans-serif", fontSize: 11 }}>May take 10–20 seconds on first load</div>
           </div>
         )}
         {error && (
@@ -208,13 +213,13 @@ function KetcherEditor({ onSmilesChange, initialSmiles }) {
         )}
         <iframe
           ref={iframeRef}
-          src="https://lifescience.opensource.epam.com/KetcherDemoSPA/index.html"
-          style={{ width: "100%", height: 480, border: "none", display: "block", background: "#fff" }}
+          src={KETCHER_URL}
+          style={{ width: "100%", height: 500, border: "none", display: "block", background: "#fff", opacity: ready ? 1 : 0, transition: "opacity 0.3s" }}
           title="Ketcher Molecular Editor"
           onError={() => setError(true)}
         />
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <button
           onClick={getSmiles}
           disabled={!ready}
@@ -227,12 +232,9 @@ function KetcherEditor({ onSmilesChange, initialSmiles }) {
           style={{ background: "transparent", border: "1px solid rgba(167,139,250,0.3)", borderRadius: 10, padding: "12px 20px", color: "#a78bfa", fontFamily: "Arial,sans-serif", fontSize: 13, cursor: ready ? "pointer" : "not-allowed" }}>
           🗑 Clear
         </button>
-        {!ready && !error && (
-          <span style={{ alignSelf: "center", fontSize: 12, color: "#a78bfa", fontFamily: "Arial,sans-serif" }}>⏳ Loading editor…</span>
-        )}
-        {ready && (
-          <span style={{ alignSelf: "center", fontSize: 12, color: "#34d399", fontFamily: "Arial,sans-serif" }}>✓ Editor ready — draw your molecule, then click "Use This Structure"</span>
-        )}
+        <span style={{ alignSelf: "center", fontSize: 12, fontFamily: "Arial,sans-serif", color: ready ? "#34d399" : "rgba(167,139,250,0.5)" }}>
+          {ready ? "✓ Editor ready — draw your molecule, then click \"Use This Structure\"" : !error ? "⏳ Loading editor…" : ""}
+        </span>
       </div>
     </div>
   );
@@ -304,21 +306,20 @@ INSTRUCTIONS:
     setLoading(true);
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch(`${API}/ai/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
           system: buildSystemPrompt(),
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
         }),
       });
       const data = await response.json();
-      const reply = data.content?.[0]?.text || "Sorry, I couldn't generate a response.";
+      if (!response.ok || data.error) throw new Error(data.error || "API error");
+      const reply = data.reply || "Sorry, I couldn't generate a response.";
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch(e) {
-      setMessages(prev => [...prev, { role: "assistant", content: "⚠ Connection error. Please try again." }]);
+      setMessages(prev => [...prev, { role: "assistant", content: `⚠ ${e.message || "Connection error. Please try again."}` }]);
     }
     setLoading(false);
   };
@@ -1932,8 +1933,25 @@ export default function App() {
           <div style={{ animation: "fadeUp 0.5s ease both" }}>
             {/* SMILES input for advanced */}
             <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "20px 24px", marginBottom: 20, backdropFilter: "blur(12px)", boxShadow: T.shadow }}>
-              <div style={{ fontSize: 11, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, fontFamily: "Arial,sans-serif", marginBottom: 10 }}>
-                🔬 Advanced Analysis — Enter SMILES
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "#c4b5fd", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, fontFamily: "Arial,sans-serif" }}>
+                  🔬 Advanced Analysis — Enter SMILES
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(scaffoldResult || painsResult || targetsResult || leadoptResult) && (
+                    <>
+                      <button onClick={exportPDF} disabled={pdfExporting || !result}
+                        title={!result ? "Analyze molecule in Single mode first for full PDF" : "Export PDF with Advanced Analysis"}
+                        style={{ background: "linear-gradient(135deg,#7c2d12,#b45309)", border: "none", borderRadius: 8, padding: "7px 14px", color: "#fff", fontFamily: "Arial,sans-serif", fontSize: 12, fontWeight: 700, cursor: result ? "pointer" : "not-allowed", opacity: result ? 1 : 0.5, display: "flex", alignItems: "center", gap: 6, boxShadow: "0 3px 10px rgba(180,83,9,0.3)" }}>
+                        {pdfExporting ? "⏳" : "📄"} PDF
+                      </button>
+                      <button onClick={exportExcel} disabled={xlsxExporting}
+                        style={{ background: "linear-gradient(135deg,#065f46,#047857)", border: "none", borderRadius: 8, padding: "7px 14px", color: "#fff", fontFamily: "Arial,sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: "0 3px 10px rgba(4,120,87,0.3)" }}>
+                        {xlsxExporting ? "⏳" : "⬇"} Excel
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <input value={advSmiles} onChange={e => setAdvSmiles(e.target.value)}
