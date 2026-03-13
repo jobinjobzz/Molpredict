@@ -1480,6 +1480,26 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                {/* Structure visualizations side by side */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 14 }}>🖼 Structure Visualisation</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    {[["Full Molecule", advSmiles], ["Murcko Scaffold", scaffoldResult.scaffold_smiles], ["Generic Scaffold", scaffoldResult.generic_scaffold_smiles]].filter(([,s]) => s && s !== "None").map(([label, smi]) => (
+                      <div key={label} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                        <div style={{ background: "rgba(124,58,237,0.15)", padding: "8px 14px", fontSize: 11, color: "#c4b5fd", fontFamily: "Arial,sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                        <div style={{ background: "#fff", padding: 8, display: "flex", justifyContent: "center", alignItems: "center", minHeight: 160 }}>
+                          <img
+                            src={`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smi)}/PNG?image_size=300x200`}
+                            alt={label}
+                            style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }}
+                            onError={e => { e.target.parentNode.innerHTML = '<div style="color:#888;font-size:12px;padding:20px;text-align:center">Structure not available</div>'; }}
+                          />
+                        </div>
+                        <div style={{ padding: "6px 10px", fontSize: 10, color: T.textMuted, fontFamily: "Courier Prime,monospace", wordBreak: "break-all", background: "rgba(0,0,0,0.3)" }}>{smi.length > 60 ? smi.slice(0,60)+"…" : smi}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 {/* Scaffold properties */}
                 {scaffoldResult.scaffold_props && Object.keys(scaffoldResult.scaffold_props).length > 0 && (
                   <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 24, backdropFilter: "blur(12px)" }}>
@@ -1518,26 +1538,82 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                {/* PAINS hits */}
+                {/* Structure image */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 12 }}>🖼 Molecular Structure</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      <div style={{ background: "rgba(124,58,237,0.15)", padding: "8px 14px", fontSize: 11, color: "#c4b5fd", fontFamily: "Arial,sans-serif", fontWeight: 700 }}>FULL STRUCTURE</div>
+                      <div style={{ background: "#fff", padding: 8, display: "flex", justifyContent: "center", minHeight: 160 }}>
+                        <img src={`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(advSmiles)}/PNG?image_size=300x200`}
+                          alt="Structure" style={{ maxWidth: "100%", maxHeight: 180, objectFit: "contain" }}
+                          onError={e => { e.target.parentNode.innerHTML = '<div style="color:#888;font-size:12px;padding:20px;text-align:center">Preview not available</div>'; }} />
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(239,68,68,0.04)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: 14 }}>
+                      <div style={{ fontSize: 11, color: "#fca5a5", fontFamily: "Arial,sans-serif", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>⚠️ Alert Groups Found</div>
+                      {[...(painsResult.pains_hits||[]), ...(painsResult.custom_hits||[])].length === 0 ? (
+                        <div style={{ color: "#6ee7b7", fontSize: 13, fontFamily: "Arial,sans-serif" }}>✅ No problematic groups detected</div>
+                      ) : (
+                        [...(painsResult.pains_hits||[]), ...(painsResult.custom_hits||[])].map((h,i) => (
+                          <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                            <div style={{ fontSize: 12, color: i < (painsResult.pains_hits||[]).length ? "#fca5a5" : "#fde68a", fontWeight: 700, fontFamily: "Arial,sans-serif" }}>
+                              {i < (painsResult.pains_hits||[]).length ? "🚨" : "⚠️"} {h.name}
+                            </div>
+                            {h.smarts && <div style={{ fontSize: 10, color: T.textMuted, fontFamily: "Courier Prime,monospace", marginTop: 3, wordBreak: "break-all" }}>{h.smarts}</div>}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {/* PAINS hits detail */}
                 {painsResult.pains_hits?.length > 0 && (
                   <div style={{ background: T.bgCard, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171", fontFamily: "Arial,sans-serif", marginBottom: 12 }}>🚨 PAINS Alerts (Baell & Holloway 2010)</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#f87171", fontFamily: "Arial,sans-serif", marginBottom: 12 }}>🚨 PAINS Alerts — Structural Detail (Baell & Holloway 2010)</div>
                     {painsResult.pains_hits.map((h,i) => (
-                      <div key={i} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontFamily: "Arial,sans-serif" }}>
-                        <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700 }}>{h.name}</div>
-                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{h.source}</div>
+                      <div key={i} style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, padding: 14, marginBottom: 10, display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "start" }}>
+                        <div>
+                          <div style={{ fontSize: 13, color: "#fca5a5", fontWeight: 700, fontFamily: "Arial,sans-serif", marginBottom: 4 }}>{h.name}</div>
+                          <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif", marginBottom: 6 }}>{h.source}</div>
+                          <div style={{ fontSize: 11, color: "#fca5a5", fontFamily: "Arial,sans-serif", lineHeight: 1.5 }}>
+                            This functional group is known to cause false positives in HTS assays through non-specific reactivity, fluorescence interference, or aggregation.
+                          </div>
+                        </div>
+                        <div style={{ background: "#fff", borderRadius: 8, padding: 4, minWidth: 100 }}>
+                          <img src={`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(advSmiles)}/PNG?image_size=120x100`}
+                            alt={h.name} style={{ width: 100, height: 80, objectFit: "contain" }}
+                            onError={e => { e.target.style.display='none'; }} />
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
-                {/* Custom alerts */}
+                {/* Custom alerts detail */}
                 {painsResult.custom_hits?.length > 0 && (
                   <div style={{ background: T.bgCard, border: `1px solid rgba(245,158,11,0.3)`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#fbbf24", fontFamily: "Arial,sans-serif", marginBottom: 12 }}>⚠️ Additional Structural Alerts</div>
                     {painsResult.custom_hits.map((h,i) => (
-                      <div key={i} style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontFamily: "Arial,sans-serif" }}>
-                        <div style={{ fontSize: 13, color: "#fde68a", fontWeight: 700 }}>{h.name}</div>
-                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2, fontFamily: "Courier Prime,monospace" }}>{h.smarts}</div>
+                      <div key={i} style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, color: "#fde68a", fontWeight: 700, fontFamily: "Arial,sans-serif", marginBottom: 6 }}>{h.name}</div>
+                            <div style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: "4px 10px", display: "inline-block", marginBottom: 6 }}>
+                              <span style={{ fontSize: 10, color: T.textMuted, fontFamily: "Arial,sans-serif" }}>SMARTS: </span>
+                              <span style={{ fontSize: 11, color: "#fde68a", fontFamily: "Courier Prime,monospace" }}>{h.smarts}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif", lineHeight: 1.5 }}>
+                              Reactive functional group that may interfere with biochemical assays or cause toxicity concerns.
+                            </div>
+                          </div>
+                          {h.smarts && (
+                            <div style={{ background: "#fff", borderRadius: 8, padding: 4, flexShrink: 0 }}>
+                              <img src={`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(h.smarts.replace(/\[|\]/g,''))}/PNG?image_size=100x80`}
+                                alt={h.name} style={{ width: 90, height: 70, objectFit: "contain" }}
+                                onError={e => { e.target.style.display='none'; }} />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1670,6 +1746,63 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Chemical structure diagram with annotations */}
+                <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: 20, backdropFilter: "blur(12px)" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 6 }}>🖼 Current Structure</div>
+                  <div style={{ fontSize: 12, color: T.textMuted, fontFamily: "Arial,sans-serif", marginBottom: 14 }}>
+                    Use the issues and suggestions above to guide structural modifications. Focus on HIGH priority items first.
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                    {/* Structure image */}
+                    <div style={{ background: "#fff", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <img src={`https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(advSmiles)}/PNG?image_size=320x240`}
+                        alt="Current molecule" style={{ maxWidth: "100%", maxHeight: 220, objectFit: "contain" }}
+                        onError={e => { e.target.parentNode.innerHTML = '<div style="color:#888;font-size:12px;padding:30px;text-align:center">Structure preview not available<br/>Check SMILES validity</div>'; }} />
+                      <div style={{ fontSize: 10, color: "#666", marginTop: 6, fontFamily: "Arial,sans-serif" }}>Current structure</div>
+                    </div>
+                    {/* Property radar / issues at a glance */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: "Arial,sans-serif", marginBottom: 4 }}>📊 Parameter Status</div>
+                      {leadoptResult.current_properties && [
+                        ["MW", leadoptResult.current_properties.mw, 500, "Da", "≤500"],
+                        ["LogP", leadoptResult.current_properties.logp, 5, "", "0–5"],
+                        ["HBD", leadoptResult.current_properties.hbd, 5, "", "≤5"],
+                        ["HBA", leadoptResult.current_properties.hba, 10, "", "≤10"],
+                        ["TPSA", leadoptResult.current_properties.tpsa, 140, "Ų", "≤140"],
+                        ["Rot. Bonds", leadoptResult.current_properties.rotb, 10, "", "≤10"],
+                      ].map(([k, val, max, unit, target]) => {
+                        const pct = Math.min((val / (max * 1.4)) * 100, 100);
+                        const ok = val <= max && (k !== "LogP" || val >= 0);
+                        return (
+                          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 70, fontSize: 11, color: T.textMuted, fontFamily: "Arial,sans-serif", flexShrink: 0 }}>{k}</div>
+                            <div style={{ flex: 1, background: "rgba(255,255,255,0.08)", borderRadius: 99, height: 8, overflow: "hidden" }}>
+                              <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: ok ? "linear-gradient(90deg,#10b981,#34d399)" : "linear-gradient(90deg,#ef4444,#f87171)", transition: "width 0.5s" }} />
+                            </div>
+                            <div style={{ width: 60, fontSize: 11, fontFamily: "Arial,sans-serif", color: ok ? "#34d399" : "#f87171", fontWeight: 700, textAlign: "right" }}>{val}{unit}</div>
+                            <div style={{ width: 32, fontSize: 9, color: ok ? "#34d399" : "#f87171" }}>{ok ? "✅" : "❌"}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* Modification guide */}
+                  {leadoptResult.issues?.length > 0 && (
+                    <div style={{ marginTop: 16, background: "rgba(124,58,237,0.06)", borderRadius: 10, padding: 14, border: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#c4b5fd", fontFamily: "Arial,sans-serif", marginBottom: 10 }}>✏️ Suggested Structural Changes</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {leadoptResult.issues.map((issue, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, fontFamily: "Arial,sans-serif" }}>
+                            <span style={{ background: issue.severity==="high"?"rgba(239,68,68,0.2)":"rgba(245,158,11,0.2)", border: `1px solid ${issue.severity==="high"?"rgba(239,68,68,0.5)":"rgba(245,158,11,0.5)"}`, borderRadius: 6, padding: "2px 8px", color: issue.severity==="high"?"#f87171":"#fbbf24", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{issue.param}</span>
+                            <span style={{ color: T.textMuted }}>current: <strong style={{ color: T.text }}>{issue.value}</strong></span>
+                            <span style={{ color: T.textMuted }}>→ target: <strong style={{ color: "#34d399" }}>{issue.target}</strong></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {leadoptResult.issue_count === 0 && (
                   <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: T.radius, padding: 20, fontFamily: "Arial,sans-serif", fontSize: 14, color: "#6ee7b7", textAlign: "center" }}>
                     ✅ All key parameters are within optimal ranges. This molecule has good drug-like properties!
@@ -1686,7 +1819,6 @@ export default function App() {
           </div>
         )}
 
-        {mainTab==="batch" && <BatchScreen />}
       </div>
     </div>
   );
